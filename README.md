@@ -7,7 +7,7 @@
 
 A lightweight, performant Java 2D game engine template using Swing/AWT for rendering. Features a game state management system, optimized rendering pipeline, and modular entity framework.
 
-![Game Screenshot](docs/screenshots/screenshot.png)
+![Game Screenshot](docs/screenshots/menu.png)
 
 ## Features
 
