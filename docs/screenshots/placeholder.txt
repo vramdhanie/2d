@@ -1,9 +1,0 @@
-This directory will contain screenshots of the game.
-
-To add a screenshot:
-1. Take a screenshot of your game
-2. Name it something descriptive like "gameplay.png" or "menu-screen.png"
-3. Place it in this directory
-4. Update the README.md to point to your new screenshot
-
-The main README.md currently references "screenshot.png" in this directory. 

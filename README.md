@@ -50,7 +50,7 @@ app/
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/2d.git
+   git clone https://github.com/vramdhanie/2d.git
    cd 2d
    ```
 
