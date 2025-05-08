@@ -1,6 +1,8 @@
 package com.niravramdhanie.twod.game.state;
 
+import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
@@ -26,11 +28,17 @@ public class PlayState extends GameState {
     // Grid cell size (can be easily changed)
     private static final int GRID_CELL_SIZE = 32;
     
+    // Timer variables
+    private long startTime;
+    private int timerDuration = 60; // Duration in seconds
+    private Font timerFont;
+    
     public PlayState(GameStateManager gsm, int screenWidth, int screenHeight) {
         super(gsm);
         this.screenWidth = screenWidth;
         this.screenHeight = screenHeight;
         this.random = new Random();
+        this.timerFont = new Font("Arial", Font.BOLD, 24);
         System.out.println("PlayState created with dimensions: " + screenWidth + "x" + screenHeight);
     }
     
@@ -40,6 +48,7 @@ public class PlayState extends GameState {
         this.screenWidth = gsm.getWidth();
         this.screenHeight = gsm.getHeight();
         this.random = new Random();
+        this.timerFont = new Font("Arial", Font.BOLD, 24);
         System.out.println("PlayState created with dimensions from GSM: " + screenWidth + "x" + screenHeight);
     }
     
@@ -73,12 +82,29 @@ public class PlayState extends GameState {
             // Pass the blocks to the player for collision detection
             player.setBlocks(level.getBlocks());
             
+            // Initialize the timer
+            startTime = System.currentTimeMillis();
+            
             initialized = true;
             System.out.println("PlayState initialization complete");
         } catch (Exception e) {
             System.err.println("Error initializing player: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+    
+    /**
+     * Get the remaining time in seconds
+     * @return Remaining time in seconds (0 if timer has expired)
+     */
+    private int getRemainingTime() {
+        long currentTime = System.currentTimeMillis();
+        long elapsedTime = currentTime - startTime;
+        int elapsedSeconds = (int)(elapsedTime / 1000);
+        int remainingSeconds = timerDuration - elapsedSeconds;
+        
+        // Don't allow negative time
+        return Math.max(0, remainingSeconds);
     }
     
     /**
@@ -108,6 +134,9 @@ public class PlayState extends GameState {
         // Draw level (blocks and other entities)
         level.render(g);
         
+        // Draw interaction indicators for nearby buttons
+        drawButtonHighlights(g);
+        
         // Draw grid lines for debugging (optional)
         drawGridLines(g);
         
@@ -132,6 +161,84 @@ public class PlayState extends GameState {
         
         // Draw grid info
         drawGridInfo(g);
+        
+        // Draw timer
+        drawTimer(g);
+    }
+    
+    /**
+     * Draws highlights around buttons that can be interacted with
+     */
+    private void drawButtonHighlights(Graphics2D g) {
+        if (player == null || level == null) return;
+        
+        List<Button> nearButtons = getButtonsNearPlayer();
+        if (nearButtons.isEmpty()) return;
+        
+        // Save the original stroke
+        java.awt.Stroke originalStroke = g.getStroke();
+        
+        // Set a thicker stroke for highlighting
+        g.setStroke(new BasicStroke(3));
+        g.setColor(Color.WHITE);
+        
+        // Draw highlight around each nearby button's grid cell
+        for (Button button : nearButtons) {
+            // Calculate the grid position for the button
+            int gridX = level.getGrid().screenToGridX((int)button.getX());
+            int gridY = level.getGrid().screenToGridY((int)button.getY());
+            
+            // Convert grid position to screen coordinates
+            int screenX = level.getGrid().gridToScreenX(gridX);
+            int screenY = level.getGrid().gridToScreenY(gridY);
+            
+            // Draw the cell outline with a pulsating effect
+            long currentTime = System.currentTimeMillis();
+            float pulseIntensity = (float)Math.abs(Math.sin(currentTime * 0.003)) * 0.5f + 0.5f;
+            
+            // Create a partially transparent white based on pulse
+            Color highlightColor = new Color(
+                1.0f, 1.0f, 1.0f, 0.5f + pulseIntensity * 0.5f
+            );
+            g.setColor(highlightColor);
+            
+            // Draw the rectangle around the grid cell
+            g.drawRect(screenX, screenY, level.getGrid().getCellSize(), level.getGrid().getCellSize());
+        }
+        
+        // Restore the original stroke
+        g.setStroke(originalStroke);
+    }
+    
+    /**
+     * Draws the timer at the top center of the screen
+     */
+    private void drawTimer(Graphics2D g) {
+        int remainingTime = getRemainingTime();
+        
+        // Format the time as MM:SS
+        String minutes = String.format("%02d", remainingTime / 60);
+        String seconds = String.format("%02d", remainingTime % 60);
+        String timeText = minutes + ":" + seconds;
+        
+        // Set font and determine text width for centering
+        g.setFont(timerFont);
+        int textWidth = g.getFontMetrics().stringWidth(timeText);
+        
+        // Draw background for better visibility
+        g.setColor(new Color(0, 0, 0, 180)); // Semi-transparent black
+        int padding = 8;
+        g.fillRoundRect((screenWidth - textWidth) / 2 - padding, 10 - padding, 
+                        textWidth + padding * 2, timerFont.getSize() + padding * 2, 10, 10);
+        
+        // Draw timer text - white for normal, yellow when < 10 seconds
+        if (remainingTime > 10) {
+            g.setColor(Color.WHITE);
+        } else {
+            g.setColor(Color.YELLOW);
+        }
+        
+        g.drawString(timeText, (screenWidth - textWidth) / 2, 10 + timerFont.getSize());
     }
     
     /**
@@ -180,7 +287,7 @@ public class PlayState extends GameState {
             // Show nearby buttons info
             List<Button> nearButtons = getButtonsNearPlayer();
             g.drawString("Nearby buttons: " + nearButtons.size(), 10, 100);
-            if (nearButtons.size() > 0) {
+            if (!nearButtons.isEmpty()) {
                 g.drawString("Press 'E' to activate", 10, 120);
             }
         }
