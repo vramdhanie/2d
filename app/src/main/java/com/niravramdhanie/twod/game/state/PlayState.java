@@ -14,8 +14,9 @@ import com.niravramdhanie.twod.game.actions.ActionFactory;
 import com.niravramdhanie.twod.game.core.GameStateManager;
 import com.niravramdhanie.twod.game.entity.BallPlayer;
 import com.niravramdhanie.twod.game.entity.Button;
-import com.niravramdhanie.twod.game.entity.Entity;
 import com.niravramdhanie.twod.game.level.Level;
+import com.niravramdhanie.twod.game.utils.RewindManager;
+import com.niravramdhanie.twod.game.utils.TimerManager;
 
 public class PlayState extends GameState {
     private BallPlayer player;
@@ -32,6 +33,16 @@ public class PlayState extends GameState {
     private long startTime;
     private int timerDuration = 60; // Duration in seconds
     private Font timerFont;
+    
+    // Timer manager
+    private TimerManager timerManager;
+    
+    // Rewind feature
+    private RewindManager rewindManager;
+    private boolean rewindEnabled = true;
+    
+    // New variables for button highlighting
+    private List<Button> nearButtons = new ArrayList<>();
     
     public PlayState(GameStateManager gsm, int screenWidth, int screenHeight) {
         super(gsm);
@@ -82,8 +93,15 @@ public class PlayState extends GameState {
             // Pass the blocks to the player for collision detection
             player.setBlocks(level.getBlocks());
             
-            // Initialize the timer
-            startTime = System.currentTimeMillis();
+            // Initialize the timer manager
+            timerManager = new TimerManager(timerDuration);
+            timerManager.start();
+            
+            // Initialize the rewind manager
+            rewindManager = new RewindManager(player, level.getButtons(), timerManager);
+            
+            // Set the rewind manager for buttons
+            Button.setRewindManager(rewindManager);
             
             initialized = true;
             System.out.println("PlayState initialization complete");
@@ -98,13 +116,8 @@ public class PlayState extends GameState {
      * @return Remaining time in seconds (0 if timer has expired)
      */
     private int getRemainingTime() {
-        long currentTime = System.currentTimeMillis();
-        long elapsedTime = currentTime - startTime;
-        int elapsedSeconds = (int)(elapsedTime / 1000);
-        int remainingSeconds = timerDuration - elapsedSeconds;
-        
-        // Don't allow negative time
-        return Math.max(0, remainingSeconds);
+        // Use the timer manager instead of calculating directly
+        return timerManager.getTime();
     }
     
     /**
@@ -118,64 +131,172 @@ public class PlayState extends GameState {
     
     @Override
     public void update() {
-        // Update the level entities
-        level.update();
+        if (!initialized) return;
         
-        // Update the player
-        player.update();
+        try {
+            // Update timer
+            timerManager.update();
+            
+            // Update rewind manager
+            if (rewindManager != null) {
+                rewindManager.update();
+            }
+            
+            // Update level (includes buttons, etc.)
+            level.update();
+            
+            // Update player position
+            if (player != null) {
+                player.update();
+            }
+            
+            // Check for interaction with buttons
+            checkButtonHighlights();
+            
+        } catch (Exception e) {
+            System.err.println("Error in PlayState.update(): " + e.getMessage());
+            e.printStackTrace();
+        }
     }
     
     @Override
     public void render(Graphics2D g) {
-        // Clear screen with background color
-        g.setColor(Color.BLACK);
-        g.fillRect(0, 0, screenWidth, screenHeight);
+        if (!initialized) return;
         
-        // Draw level (blocks and other entities)
-        level.render(g);
-        
-        // Draw interaction indicators for nearby buttons
-        drawButtonHighlights(g);
-        
-        // Draw grid lines for debugging (optional)
-        drawGridLines(g);
-        
-        // Draw player
-        if (player != null) {
-            player.render(g);
-        } else {
-            // Fallback if player is null
-            g.setColor(Color.RED);
-            g.fillOval(screenWidth / 2 - 16, screenHeight - 16 - 50, 32, 32);
+        try {
+            // Clear the screen
+            g.setColor(Color.BLACK);
+            g.fillRect(0, 0, screenWidth, screenHeight);
             
-            // Debug message
-            g.setColor(Color.WHITE);
-            g.drawString("Player object is null!", 10, 20);
+            // Draw the grid (if needed for debugging)
+            // level.getGrid().render(g);
             
-            // If not initialized, try to initialize
-            if (!initialized) {
-                System.out.println("Player was null, attempting to initialize again");
-                init();
+            // Draw the level blocks
+            level.render(g);
+            
+            // Draw player
+            if (player != null) {
+                player.render(g);
             }
+            
+            // Draw remaining time
+            renderTimer(g);
+            
+            // Draw interaction indicator for buttons
+            drawButtonHighlights(g);
+            
+            // Draw rewind status indicator
+            drawRewindStatusIndicator(g);
+            
+        } catch (Exception e) {
+            System.err.println("Error in PlayState.render(): " + e.getMessage());
+            e.printStackTrace();
+            
+            // Display error information
+            g.setColor(Color.RED);
+            g.drawString("Render Error: " + e.getMessage(), 10, 20);
         }
-        
-        // Draw grid info
-        drawGridInfo(g);
-        
-        // Draw timer
-        drawTimer(g);
     }
     
     /**
-     * Draws highlights around buttons that can be interacted with
+     * Renders the timer at the top center of the screen
+     */
+    private void renderTimer(Graphics2D g) {
+        // Use the timer manager to render the timer
+        if (timerManager != null) {
+            timerManager.render(g, screenWidth);
+        }
+    }
+    
+    /**
+     * Draws an indicator showing the current rewind state
+     */
+    private void drawRewindStatusIndicator(Graphics2D g) {
+        if (rewindManager == null) return;
+        
+        // Save original color and font
+        Color originalColor = g.getColor();
+        Font originalFont = g.getFont();
+        
+        // Set font and position for rewind indicator
+        g.setFont(new Font("Arial", Font.BOLD, 16));
+        int y = screenHeight - 40;
+        
+        // Draw different indicators based on rewind state
+        switch (rewindManager.getCurrentState()) {
+            case RECORDING:
+                // Red recording indicator
+                g.setColor(Color.RED);
+                g.fillOval(10, y, 15, 15);
+                g.drawString("Recording", 30, y + 12);
+                break;
+                
+            case REWINDING:
+                // Flashing blue rewind indicator
+                if ((System.currentTimeMillis() / 250) % 2 == 0) {
+                    g.setColor(Color.BLUE);
+                } else {
+                    g.setColor(Color.CYAN);
+                }
+                
+                int[] xPoints = {20, 5, 5};
+                int[] yPoints = {y + 7, y, y + 15};
+                g.fillPolygon(xPoints, yPoints, 3);
+                
+                g.drawString("Rewinding", 30, y + 12);
+                break;
+                
+            case IDLE:
+                // Gray idle indicator
+                g.setColor(Color.GRAY);
+                g.drawOval(10, y, 15, 15);
+                g.drawString("Press 'R' to Record", 30, y + 12);
+                break;
+        }
+        
+        // Restore original color and font
+        g.setColor(originalColor);
+        g.setFont(originalFont);
+    }
+    
+    /**
+     * Checks for buttons near the player and highlights them
+     */
+    private void checkButtonHighlights() {
+        if (player == null) return;
+        
+        // Get all buttons from the level
+        List<Button> buttons = level.getButtons();
+        
+        // Clear the list of nearby buttons
+        nearButtons.clear();
+        
+        // Check each button to see if it's near the player
+        for (Button button : buttons) {
+            // Calculate distance between player center and button center
+            float playerCenterX = player.getX() + player.getWidth() / 2;
+            float playerCenterY = player.getY() + player.getHeight() / 2;
+            float buttonCenterX = button.getX() + button.getWidth() / 2;
+            float buttonCenterY = button.getY() + button.getHeight() / 2;
+            
+            // Calculate the distance in grid cells (not pixels)
+            float dx = Math.abs(playerCenterX - buttonCenterX) / GRID_CELL_SIZE;
+            float dy = Math.abs(playerCenterY - buttonCenterY) / GRID_CELL_SIZE;
+            
+            // Button is within 1 cell of player (Manhattan distance)
+            if (dx <= 1 && dy <= 1) {
+                nearButtons.add(button);
+            }
+        }
+    }
+    
+    /**
+     * Draws highlights around buttons that are near the player
      */
     private void drawButtonHighlights(Graphics2D g) {
-        if (player == null || level == null) return;
-        
-        List<Button> nearButtons = getButtonsNearPlayer();
         if (nearButtons.isEmpty()) return;
         
-        // Save the original stroke
+        // Save original stroke
         java.awt.Stroke originalStroke = g.getStroke();
         
         // Set a thicker stroke for highlighting
@@ -206,39 +327,22 @@ public class PlayState extends GameState {
             g.drawRect(screenX, screenY, level.getGrid().getCellSize(), level.getGrid().getCellSize());
         }
         
-        // Restore the original stroke
+        // Restore original stroke
         g.setStroke(originalStroke);
     }
     
     /**
-     * Draws the timer at the top center of the screen
+     * Activates buttons near the player
      */
-    private void drawTimer(Graphics2D g) {
-        int remainingTime = getRemainingTime();
-        
-        // Format the time as MM:SS
-        String minutes = String.format("%02d", remainingTime / 60);
-        String seconds = String.format("%02d", remainingTime % 60);
-        String timeText = minutes + ":" + seconds;
-        
-        // Set font and determine text width for centering
-        g.setFont(timerFont);
-        int textWidth = g.getFontMetrics().stringWidth(timeText);
-        
-        // Draw background for better visibility
-        g.setColor(new Color(0, 0, 0, 180)); // Semi-transparent black
-        int padding = 8;
-        g.fillRoundRect((screenWidth - textWidth) / 2 - padding, 10 - padding, 
-                        textWidth + padding * 2, timerFont.getSize() + padding * 2, 10, 10);
-        
-        // Draw timer text - white for normal, yellow when < 10 seconds
-        if (remainingTime > 10) {
-            g.setColor(Color.WHITE);
-        } else {
-            g.setColor(Color.YELLOW);
+    private void activateNearbyButtons() {
+        // Process each nearby button
+        for (Button button : nearButtons) {
+            boolean activated = button.activate();
+            
+            if (activated) {
+                System.out.println("Button activated at " + button.getX() + "," + button.getY());
+            }
         }
-        
-        g.drawString(timeText, (screenWidth - textWidth) / 2, 10 + timerFont.getSize());
     }
     
     /**
@@ -285,7 +389,6 @@ public class PlayState extends GameState {
             g.drawString("Player grid pos: " + playerGridX + "," + playerGridY, 10, 80);
             
             // Show nearby buttons info
-            List<Button> nearButtons = getButtonsNearPlayer();
             g.drawString("Nearby buttons: " + nearButtons.size(), 10, 100);
             if (!nearButtons.isEmpty()) {
                 g.drawString("Press 'E' to activate", 10, 120);
@@ -363,84 +466,44 @@ public class PlayState extends GameState {
         System.out.println("Added test buttons to the level");
     }
     
-    /**
-     * Gets all buttons that are within one grid cell distance of the player
-     * 
-     * @return A list of buttons that are near the player
-     */
-    private List<Button> getButtonsNearPlayer() {
-        List<Button> nearButtons = new ArrayList<>();
-        
-        if (player == null || level == null) return nearButtons;
-        
-        // Get player's grid position
-        int playerGridX = level.getGrid().screenToGridX((int)player.getX());
-        int playerGridY = level.getGrid().screenToGridY((int)player.getY());
-        
-        // Check all adjacent cells (including diagonals)
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = -1; dy <= 1; dy++) {
-                // Skip the player's own cell
-                if (dx == 0 && dy == 0) continue;
-                
-                int checkX = playerGridX + dx;
-                int checkY = playerGridY + dy;
-                
-                // Get entity at this position
-                Entity entity = level.getEntityAt(checkX, checkY);
-                
-                // If it's a button, add it to the list
-                if (entity instanceof Button) {
-                    nearButtons.add((Button) entity);
-                }
-            }
-        }
-        
-        return nearButtons;
-    }
-    
-    /**
-     * Activates buttons that are near the player
-     * 
-     * @return True if any button was activated, false otherwise
-     */
-    private boolean activateNearbyButtons() {
-        List<Button> nearButtons = getButtonsNearPlayer();
-        boolean anyActivated = false;
-        
-        for (Button button : nearButtons) {
-            if (button.activate()) {
-                anyActivated = true;
-                System.out.println("Button activated!");
-            }
-        }
-        
-        return anyActivated;
-    }
-    
     @Override
     public void keyPressed(int k) {
-        if (k == KeyEvent.VK_LEFT) player.setLeft(true);
-        if (k == KeyEvent.VK_RIGHT) player.setRight(true);
-        if (k == KeyEvent.VK_UP) player.setUp(true);
-        if (k == KeyEvent.VK_DOWN) player.setDown(true);
+        // Handle player movement
+        if (player != null) {
+            if (k == KeyEvent.VK_LEFT || k == KeyEvent.VK_A) {
+                player.setLeft(true);
+            }
+            if (k == KeyEvent.VK_RIGHT || k == KeyEvent.VK_D) {
+                player.setRight(true);
+            }
+            if (k == KeyEvent.VK_UP || k == KeyEvent.VK_W) {
+                player.setUp(true);
+            }
+            if (k == KeyEvent.VK_DOWN || k == KeyEvent.VK_S) {
+                player.setDown(true);
+            }
+        }
         
-        // Alternative WASD controls
-        if (k == KeyEvent.VK_A) player.setLeft(true);
-        if (k == KeyEvent.VK_D) player.setRight(true);
-        if (k == KeyEvent.VK_W) player.setUp(true);
-        if (k == KeyEvent.VK_S) player.setDown(true);
-        
-        // Button activation with E key
+        // Handle interaction with 'E' key
         if (k == KeyEvent.VK_E) {
             activateNearbyButtons();
+        }
+        
+        // Handle pause with Escape key
+        if (k == KeyEvent.VK_ESCAPE) {
+            gsm.setState(GameStateManager.PAUSE_STATE);
+        }
+        
+        // Handle rewind feature with 'R' key
+        if (k == KeyEvent.VK_R && rewindEnabled && rewindManager != null) {
+            rewindManager.toggleRewind();
         }
         
         // Level layout switching for testing
         if (k == KeyEvent.VK_1) setLevelLayout(1);
         if (k == KeyEvent.VK_2) setLevelLayout(2);
         if (k == KeyEvent.VK_3) setLevelLayout(3);
-        if (k == KeyEvent.VK_R) setLevelLayout(0); // Random blocks
+        if (k == KeyEvent.VK_0) setLevelLayout(0); // Random blocks (changed from R to 0)
     }
     
     @Override
