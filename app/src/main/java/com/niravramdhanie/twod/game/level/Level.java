@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Random;
 
 import com.niravramdhanie.twod.game.entity.Block;
+import com.niravramdhanie.twod.game.entity.Button;
 import com.niravramdhanie.twod.game.entity.Entity;
 import com.niravramdhanie.twod.game.utils.GridSystem;
 
@@ -201,6 +202,60 @@ public class Level {
             }
         }
         return blocks;
+    }
+    
+    /**
+     * Gets all buttons in the level.
+     * 
+     * @return A list of all buttons
+     */
+    public List<Button> getButtons() {
+        List<Button> buttons = new ArrayList<>();
+        for (Entity entity : entities) {
+            if (entity instanceof Button) {
+                buttons.add((Button) entity);
+            }
+        }
+        return buttons;
+    }
+    
+    /**
+     * Adds a button at the specified grid position.
+     * 
+     * @param button The button to add
+     * @param gridX The X position on the grid
+     * @param gridY The Y position on the grid
+     * @return True if the button was added successfully, false if the position was already occupied
+     */
+    public boolean addButton(Button button, int gridX, int gridY) {
+        return addEntity(button, gridX, gridY);
+    }
+    
+    /**
+     * Finds a suitable position for a button where it won't overlap with blocks.
+     * 
+     * @return An array containing the grid X and Y coordinates, or null if no position was found
+     */
+    public int[] findSuitableButtonPosition() {
+        int horizontalCells = grid.getHorizontalCells();
+        int verticalCells = grid.getVerticalCells();
+        int attempts = 0;
+        int maxAttempts = 100;
+        
+        while (attempts < maxAttempts) {
+            int gridX = random.nextInt(horizontalCells);
+            int gridY = random.nextInt(verticalCells);
+            
+            // Check if the position is unoccupied
+            if (!grid.isOccupied(gridX, gridY)) {
+                return new int[] {gridX, gridY};
+            }
+            
+            attempts++;
+        }
+        
+        // Couldn't find a suitable position
+        return null;
     }
     
     /**

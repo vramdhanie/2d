@@ -3,10 +3,16 @@ package com.niravramdhanie.twod.game.state;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.event.KeyEvent;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 
+import com.niravramdhanie.twod.game.actions.Action;
+import com.niravramdhanie.twod.game.actions.ActionFactory;
 import com.niravramdhanie.twod.game.core.GameStateManager;
 import com.niravramdhanie.twod.game.entity.BallPlayer;
+import com.niravramdhanie.twod.game.entity.Button;
+import com.niravramdhanie.twod.game.entity.Entity;
 import com.niravramdhanie.twod.game.level.Level;
 
 public class PlayState extends GameState {
@@ -46,6 +52,9 @@ public class PlayState extends GameState {
         
         // Create a level layout with random blocks
         level.addRandomBlocks(10);
+        
+        // Add some buttons to the level
+        addTestButtons();
         
         try {
             // Create player in the lower middle of the screen
@@ -167,7 +176,139 @@ public class PlayState extends GameState {
             int playerGridX = level.getGrid().screenToGridX((int)player.getX());
             int playerGridY = level.getGrid().screenToGridY((int)player.getY());
             g.drawString("Player grid pos: " + playerGridX + "," + playerGridY, 10, 80);
+            
+            // Show nearby buttons info
+            List<Button> nearButtons = getButtonsNearPlayer();
+            g.drawString("Nearby buttons: " + nearButtons.size(), 10, 100);
+            if (nearButtons.size() > 0) {
+                g.drawString("Press 'E' to activate", 10, 120);
+            }
         }
+    }
+    
+    /**
+     * Adds test buttons to the level
+     */
+    private void addTestButtons() {
+        int cellSize = level.getGrid().getCellSize();
+        
+        // Create one button for each action type at different positions
+        List<ActionFactory.ActionType> actionTypes = List.of(
+            ActionFactory.ActionType.MESSAGE,
+            ActionFactory.ActionType.TIMED,
+            ActionFactory.ActionType.TOGGLE,
+            ActionFactory.ActionType.DOOR,
+            ActionFactory.ActionType.MULTI,
+            ActionFactory.ActionType.CYCLING_MESSAGE
+        );
+        
+        int horizontalCells = level.getGrid().getHorizontalCells();
+        int verticalCells = level.getGrid().getVerticalCells();
+        
+        // Calculate positions based on the number of action types
+        List<int[]> positions = new ArrayList<>();
+        
+        // Place buttons in the four corners and center
+        positions.add(new int[]{3, 3});  // Top-left
+        positions.add(new int[]{horizontalCells - 4, 3});  // Top-right
+        positions.add(new int[]{3, verticalCells - 4});  // Bottom-left
+        positions.add(new int[]{horizontalCells - 4, verticalCells - 4});  // Bottom-right
+        positions.add(new int[]{horizontalCells / 2, verticalCells / 2});  // Center
+        
+        // Add extra position if needed
+        if (actionTypes.size() > positions.size()) {
+            positions.add(new int[]{horizontalCells / 3, verticalCells / 3});
+        }
+        
+        // Create buttons for each action type
+        for (int i = 0; i < actionTypes.size() && i < positions.size(); i++) {
+            Button button = new Button(0, 0, cellSize, cellSize);
+            Action action = ActionFactory.createAction(actionTypes.get(i), button);
+            button.setAction(action);
+            
+            int[] pos = positions.get(i);
+            level.addEntity(button, pos[0], pos[1]);
+            
+            System.out.println("Added button with action: " + actionTypes.get(i) + " at " + pos[0] + "," + pos[1]);
+        }
+        
+        // Additionally, add a random button somewhere
+        int attempts = 0;
+        boolean placed = false;
+        
+        while (!placed && attempts < 10) {
+            // Try to find a random unoccupied position
+            int[] pos = level.findSuitableButtonPosition();
+            
+            if (pos != null) {
+                Button randomButton = new Button(0, 0, cellSize, cellSize);
+                Action randomAction = ActionFactory.createRandomAction(randomButton);
+                randomButton.setAction(randomAction);
+                
+                level.addEntity(randomButton, pos[0], pos[1]);
+                System.out.println("Added random button at " + pos[0] + "," + pos[1]);
+                placed = true;
+            }
+            
+            attempts++;
+        }
+        
+        System.out.println("Added test buttons to the level");
+    }
+    
+    /**
+     * Gets all buttons that are within one grid cell distance of the player
+     * 
+     * @return A list of buttons that are near the player
+     */
+    private List<Button> getButtonsNearPlayer() {
+        List<Button> nearButtons = new ArrayList<>();
+        
+        if (player == null || level == null) return nearButtons;
+        
+        // Get player's grid position
+        int playerGridX = level.getGrid().screenToGridX((int)player.getX());
+        int playerGridY = level.getGrid().screenToGridY((int)player.getY());
+        
+        // Check all adjacent cells (including diagonals)
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                // Skip the player's own cell
+                if (dx == 0 && dy == 0) continue;
+                
+                int checkX = playerGridX + dx;
+                int checkY = playerGridY + dy;
+                
+                // Get entity at this position
+                Entity entity = level.getEntityAt(checkX, checkY);
+                
+                // If it's a button, add it to the list
+                if (entity instanceof Button) {
+                    nearButtons.add((Button) entity);
+                }
+            }
+        }
+        
+        return nearButtons;
+    }
+    
+    /**
+     * Activates buttons that are near the player
+     * 
+     * @return True if any button was activated, false otherwise
+     */
+    private boolean activateNearbyButtons() {
+        List<Button> nearButtons = getButtonsNearPlayer();
+        boolean anyActivated = false;
+        
+        for (Button button : nearButtons) {
+            if (button.activate()) {
+                anyActivated = true;
+                System.out.println("Button activated!");
+            }
+        }
+        
+        return anyActivated;
     }
     
     @Override
@@ -182,6 +323,11 @@ public class PlayState extends GameState {
         if (k == KeyEvent.VK_D) player.setRight(true);
         if (k == KeyEvent.VK_W) player.setUp(true);
         if (k == KeyEvent.VK_S) player.setDown(true);
+        
+        // Button activation with E key
+        if (k == KeyEvent.VK_E) {
+            activateNearbyButtons();
+        }
         
         // Level layout switching for testing
         if (k == KeyEvent.VK_1) setLevelLayout(1);
