@@ -3,21 +3,22 @@ package com.niravramdhanie.twod.game.state;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.event.KeyEvent;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Random;
 
 import com.niravramdhanie.twod.game.core.GameStateManager;
 import com.niravramdhanie.twod.game.entity.BallPlayer;
-import com.niravramdhanie.twod.game.entity.Block;
+import com.niravramdhanie.twod.game.level.Level;
 
 public class PlayState extends GameState {
     private BallPlayer player;
-    private List<Block> blocks;
+    private Level level;
     private int screenWidth;
     private int screenHeight;
     private Random random;
     private boolean initialized = false;
+    
+    // Grid cell size (can be easily changed)
+    private static final int GRID_CELL_SIZE = 32;
     
     public PlayState(GameStateManager gsm, int screenWidth, int screenHeight) {
         super(gsm);
@@ -40,18 +41,28 @@ public class PlayState extends GameState {
     public void init() {
         System.out.println("PlayState.init() called");
         
-        // Create blocks
-        blocks = new ArrayList<>();
-        createBlocks(10); // Create 10 random blocks
+        // Create the level with a grid
+        level = new Level(screenWidth, screenHeight, GRID_CELL_SIZE);
+        
+        // Create a level layout with random blocks
+        level.addRandomBlocks(10);
         
         try {
             // Create player in the lower middle of the screen
-            int playerSize = 32;
-            int playerX = screenWidth / 2 - playerSize / 2;
-            int playerY = screenHeight - playerSize - 50; // 50 pixels from bottom
+            int gridCellSize = level.getGrid().getCellSize();
+            int playerSize = gridCellSize; // Make player the same size as grid cells
+            
+            // Position player at the bottom middle of the grid
+            int gridX = level.getGrid().getHorizontalCells() / 2;
+            int gridY = level.getGrid().getVerticalCells() - 3;
+            int playerX = level.getGrid().gridToScreenX(gridX);
+            int playerY = level.getGrid().gridToScreenY(gridY);
+            
             System.out.println("Creating player at: " + playerX + "," + playerY);
             player = new BallPlayer(playerX, playerY, playerSize, playerSize, screenWidth, screenHeight);
-            player.setBlocks(blocks);
+            
+            // Pass the blocks to the player for collision detection
+            player.setBlocks(level.getBlocks());
             
             initialized = true;
             System.out.println("PlayState initialization complete");
@@ -61,59 +72,22 @@ public class PlayState extends GameState {
         }
     }
     
-    private void createBlocks(int numBlocks) {
-        int blockWidth = 64;
-        int blockHeight = 64;
-        
-        for (int i = 0; i < numBlocks; i++) {
-            // Generate random positions, but don't spawn in the bottom center
-            // where the player will start
-            int x, y;
-            boolean validPosition;
-            
-            do {
-                validPosition = true;
-                x = random.nextInt(screenWidth - blockWidth);
-                y = random.nextInt(screenHeight - blockHeight);
-                
-                // Avoid spawning in the bottom center (player spawn area)
-                int playerSpawnX = screenWidth / 2 - 50; // 50 is half player spawn width
-                int playerSpawnY = screenHeight - 150; // 150 is approximate player spawn height
-                int playerSpawnWidth = 100; // Width of the spawn area
-                int playerSpawnHeight = 150; // Height of the spawn area
-                
-                // Check if block overlaps with player spawn area
-                if (x < playerSpawnX + playerSpawnWidth &&
-                    x + blockWidth > playerSpawnX &&
-                    y < playerSpawnY + playerSpawnHeight &&
-                    y + blockHeight > playerSpawnY) {
-                    validPosition = false;
-                }
-                
-                // Check if block overlaps with other blocks
-                for (Block block : blocks) {
-                    if (x < block.getX() + block.getWidth() + 10 &&
-                        x + blockWidth + 10 > block.getX() &&
-                        y < block.getY() + block.getHeight() + 10 &&
-                        y + blockHeight + 10 > block.getY()) {
-                        validPosition = false;
-                        break;
-                    }
-                }
-            } while (!validPosition);
-            
-            blocks.add(new Block(x, y, blockWidth, blockHeight));
-        }
+    /**
+     * Changes the current level layout
+     * @param layoutType The type of layout to create
+     */
+    public void setLevelLayout(int layoutType) {
+        level.createLayout(layoutType);
+        player.setBlocks(level.getBlocks());
     }
     
     @Override
     public void update() {
-        player.update();
+        // Update the level entities
+        level.update();
         
-        // Update blocks (if they had dynamic behavior)
-        for (Block block : blocks) {
-            block.update();
-        }
+        // Update the player
+        player.update();
     }
     
     @Override
@@ -122,12 +96,11 @@ public class PlayState extends GameState {
         g.setColor(Color.BLACK);
         g.fillRect(0, 0, screenWidth, screenHeight);
         
-        // Draw blocks
-        if (blocks != null) {
-            for (Block block : blocks) {
-                block.render(g);
-            }
-        }
+        // Draw level (blocks and other entities)
+        level.render(g);
+        
+        // Draw grid lines for debugging (optional)
+        drawGridLines(g);
         
         // Draw player
         if (player != null) {
@@ -147,6 +120,54 @@ public class PlayState extends GameState {
                 init();
             }
         }
+        
+        // Draw grid info
+        drawGridInfo(g);
+    }
+    
+    /**
+     * Draws debug grid lines
+     */
+    private void drawGridLines(Graphics2D g) {
+        if (level == null || level.getGrid() == null) return;
+        
+        g.setColor(new Color(50, 50, 50, 100)); // Semi-transparent gray
+        
+        int cellSize = level.getGrid().getCellSize();
+        int horizontalCells = level.getGrid().getHorizontalCells();
+        int verticalCells = level.getGrid().getVerticalCells();
+        
+        // Draw vertical lines
+        for (int x = 0; x <= horizontalCells; x++) {
+            int screenX = level.getGrid().gridToScreenX(x);
+            g.drawLine(screenX, 0, screenX, screenHeight);
+        }
+        
+        // Draw horizontal lines
+        for (int y = 0; y <= verticalCells; y++) {
+            int screenY = level.getGrid().gridToScreenY(y);
+            g.drawLine(0, screenY, screenWidth, screenY);
+        }
+    }
+    
+    /**
+     * Draws grid information for debugging
+     */
+    private void drawGridInfo(Graphics2D g) {
+        if (level == null || level.getGrid() == null) return;
+        
+        g.setColor(Color.WHITE);
+        g.drawString("Grid: " + level.getGrid().getHorizontalCells() + "x" + 
+                     level.getGrid().getVerticalCells() + " cells", 10, 20);
+        g.drawString("Cell size: " + level.getGrid().getCellSize() + "px", 10, 40);
+        g.drawString("Blocks: " + level.getBlocks().size(), 10, 60);
+        
+        // Show player grid position
+        if (player != null) {
+            int playerGridX = level.getGrid().screenToGridX((int)player.getX());
+            int playerGridY = level.getGrid().screenToGridY((int)player.getY());
+            g.drawString("Player grid pos: " + playerGridX + "," + playerGridY, 10, 80);
+        }
     }
     
     @Override
@@ -161,6 +182,12 @@ public class PlayState extends GameState {
         if (k == KeyEvent.VK_D) player.setRight(true);
         if (k == KeyEvent.VK_W) player.setUp(true);
         if (k == KeyEvent.VK_S) player.setDown(true);
+        
+        // Level layout switching for testing
+        if (k == KeyEvent.VK_1) setLevelLayout(1);
+        if (k == KeyEvent.VK_2) setLevelLayout(2);
+        if (k == KeyEvent.VK_3) setLevelLayout(3);
+        if (k == KeyEvent.VK_R) setLevelLayout(0); // Random blocks
     }
     
     @Override

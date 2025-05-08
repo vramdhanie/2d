@@ -16,7 +16,7 @@ public class Main {
             try {
                 // Create the game
                 System.out.println("Creating game instance");
-                Game game = new Game("My 2D Game", 800, 600);
+                Game game = new Game("My 2D Game", 1000, 750);
                 
                 // Game will start itself when initialization is complete
                 System.out.println("Game instance created");
