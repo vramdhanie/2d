@@ -462,4 +462,38 @@ public class Button extends Entity {
     public void setActiveColor(Color activeColor) {
         this.activeColor = activeColor;
     }
+    
+    /**
+     * Force sets the toggle state without executing any actions.
+     * Useful for rewind operations where we want to set the state
+     * without triggering the actual toggle behavior.
+     * 
+     * @param toggled The toggle state to set
+     * @return True if the action was a ToggleAction and state was set, false otherwise
+     */
+    public boolean forceSetToggleState(boolean toggled) {
+        if (action instanceof ToggleAction) {
+            ToggleAction toggleAction = (ToggleAction) action;
+            toggleAction.setToggled(toggled);
+            
+            // If this toggle controls a door, update the door state directly
+            if (toggleAction.getOnAction() instanceof DoorAction) {
+                DoorAction doorAction = (DoorAction) toggleAction.getOnAction();
+                doorAction.setDoorOpen(toggled);
+            }
+            
+            return true;
+        }
+        return false;
+    }
+    
+    /**
+     * Sets whether the button is activated without executing any actions.
+     * Useful for rewind operations.
+     * 
+     * @param activated Whether the button should be activated
+     */
+    public void setActivated(boolean activated) {
+        this.activated = activated;
+    }
 } 

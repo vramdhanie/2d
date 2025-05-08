@@ -12,8 +12,9 @@ import com.niravramdhanie.twod.game.utils.ResourceLoader;
  * A door entity that can be opened or closed.
  * When closed, it blocks player movement.
  * When open, it allows the player to pass through.
+ * Extends Block to work with collision detection.
  */
-public class Door extends Entity implements DoorAction.DoorStateChangeListener {
+public class Door extends Block implements DoorAction.DoorStateChangeListener {
     private String id;
     private boolean isOpen;
     private BufferedImage doorImage;

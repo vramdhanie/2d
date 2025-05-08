@@ -9,11 +9,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-import com.niravramdhanie.twod.game.actions.Action;
-import com.niravramdhanie.twod.game.actions.ActionFactory;
+import com.niravramdhanie.twod.game.actions.DoorAction;
+import com.niravramdhanie.twod.game.actions.DoorController;
+import com.niravramdhanie.twod.game.actions.ToggleAction;
 import com.niravramdhanie.twod.game.core.GameStateManager;
 import com.niravramdhanie.twod.game.entity.BallPlayer;
+import com.niravramdhanie.twod.game.entity.Block;
 import com.niravramdhanie.twod.game.entity.Button;
+import com.niravramdhanie.twod.game.entity.Door;
 import com.niravramdhanie.twod.game.level.Level;
 import com.niravramdhanie.twod.game.utils.RewindManager;
 import com.niravramdhanie.twod.game.utils.TimerManager;
@@ -40,6 +43,11 @@ public class PlayState extends GameState {
     // Rewind feature
     private RewindManager rewindManager;
     private boolean rewindEnabled = true;
+    
+    // Door controls
+    private Door door;
+    private DoorController doorController;
+    private String doorId = "main_door";
     
     // New variables for button highlighting
     private List<Button> nearButtons = new ArrayList<>();
@@ -73,8 +81,11 @@ public class PlayState extends GameState {
         // Create a level layout with random blocks
         level.addRandomBlocks(10);
         
-        // Add some buttons to the level
-        addTestButtons();
+        // Initialize door controller
+        doorController = new DoorController();
+        
+        // Add the door and toggle button to the level
+        addDoorWithToggleButton();
         
         try {
             // Create player in the lower middle of the screen
@@ -92,6 +103,9 @@ public class PlayState extends GameState {
             
             // Pass the blocks to the player for collision detection
             player.setBlocks(level.getBlocks());
+            
+            // Add door to collision blocks if it's closed
+            updateDoorCollision();
             
             // Initialize the timer manager
             timerManager = new TimerManager(timerDuration);
@@ -152,6 +166,9 @@ public class PlayState extends GameState {
             
             // Check for interaction with buttons
             checkButtonHighlights();
+            
+            // Update door collision if necessary
+            updateDoorCollision();
             
         } catch (Exception e) {
             System.err.println("Error in PlayState.update(): " + e.getMessage());
@@ -397,73 +414,71 @@ public class PlayState extends GameState {
     }
     
     /**
+     * Updates collision with the door based on its open/closed state
+     */
+    private void updateDoorCollision() {
+        if (door == null || player == null) return;
+        
+        // Get current blocks from the level
+        List<Block> blocks = new ArrayList<>(level.getBlocks());
+        
+        // Remove the door from blocks if it's in there
+        blocks.removeIf(block -> block.equals(door));
+        
+        // Add door only if it's closed
+        if (!door.isOpen()) {
+            blocks.add(door);
+        }
+        
+        // Update player's collision blocks
+        player.setBlocks(blocks);
+    }
+    
+    /**
      * Adds test buttons to the level
      */
     private void addTestButtons() {
+        // Method intentionally left empty since we're using only the door toggle button
+    }
+    
+    /**
+     * Adds a door and a toggle button to control it
+     */
+    private void addDoorWithToggleButton() {
         int cellSize = level.getGrid().getCellSize();
-        
-        // Create one button for each action type at different positions
-        List<ActionFactory.ActionType> actionTypes = List.of(
-            ActionFactory.ActionType.MESSAGE,
-            ActionFactory.ActionType.TIMED,
-            ActionFactory.ActionType.TOGGLE,
-            ActionFactory.ActionType.DOOR,
-            ActionFactory.ActionType.MULTI,
-            ActionFactory.ActionType.CYCLING_MESSAGE
-        );
-        
         int horizontalCells = level.getGrid().getHorizontalCells();
         int verticalCells = level.getGrid().getVerticalCells();
         
-        // Calculate positions based on the number of action types
-        List<int[]> positions = new ArrayList<>();
+        // Place door in the middle right of the level
+        int doorGridX = horizontalCells - 5;
+        int doorGridY = verticalCells / 2;
         
-        // Place buttons in the four corners and center
-        positions.add(new int[]{3, 3});  // Top-left
-        positions.add(new int[]{horizontalCells - 4, 3});  // Top-right
-        positions.add(new int[]{3, verticalCells - 4});  // Bottom-left
-        positions.add(new int[]{horizontalCells - 4, verticalCells - 4});  // Bottom-right
-        positions.add(new int[]{horizontalCells / 2, verticalCells / 2});  // Center
+        // Create the door
+        float doorX = level.getGrid().gridToScreenX(doorGridX);
+        float doorY = level.getGrid().gridToScreenY(doorGridY);
+        door = new Door(doorX, doorY, cellSize, cellSize, doorId);
+        level.addEntity(door, doorGridX, doorGridY);
         
-        // Add extra position if needed
-        if (actionTypes.size() > positions.size()) {
-            positions.add(new int[]{horizontalCells / 3, verticalCells / 3});
-        }
+        // Register door with controller
+        doorController.registerDoor(door);
         
-        // Create buttons for each action type
-        for (int i = 0; i < actionTypes.size() && i < positions.size(); i++) {
-            Button button = new Button(0, 0, cellSize, cellSize);
-            Action action = ActionFactory.createAction(actionTypes.get(i), button);
-            button.setAction(action);
-            
-            int[] pos = positions.get(i);
-            level.addEntity(button, pos[0], pos[1]);
-            
-            System.out.println("Added button with action: " + actionTypes.get(i) + " at " + pos[0] + "," + pos[1]);
-        }
+        // Place button in the middle left of the level
+        int buttonGridX = 5;
+        int buttonGridY = verticalCells / 2;
         
-        // Additionally, add a random button somewhere
-        int attempts = 0;
-        boolean placed = false;
+        // Create a door action
+        DoorAction doorAction = new DoorAction(doorId);
+        doorAction.setDoorStateChangeListener(doorController);
         
-        while (!placed && attempts < 10) {
-            // Try to find a random unoccupied position
-            int[] pos = level.findSuitableButtonPosition();
-            
-            if (pos != null) {
-                Button randomButton = new Button(0, 0, cellSize, cellSize);
-                Action randomAction = ActionFactory.createRandomAction(randomButton);
-                randomButton.setAction(randomAction);
-                
-                level.addEntity(randomButton, pos[0], pos[1]);
-                System.out.println("Added random button at " + pos[0] + "," + pos[1]);
-                placed = true;
-            }
-            
-            attempts++;
-        }
+        // Create a toggle action for the door
+        ToggleAction toggleAction = new ToggleAction(doorAction, doorAction);
         
-        System.out.println("Added test buttons to the level");
+        // Create button with the toggle action
+        Button doorButton = new Button(0, 0, cellSize, cellSize, toggleAction);
+        level.addEntity(doorButton, buttonGridX, buttonGridY);
+        
+        System.out.println("Added door at " + doorGridX + "," + doorGridY + 
+                          " and toggle button at " + buttonGridX + "," + buttonGridY);
     }
     
     @Override

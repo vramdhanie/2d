@@ -1,10 +1,17 @@
 package com.niravramdhanie.twod.game.utils;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
-import com.niravramdhanie.twod.game.entity.Button;
+import com.niravramdhanie.twod.game.actions.Action;
+import com.niravramdhanie.twod.game.actions.DoorAction;
+import com.niravramdhanie.twod.game.actions.ToggleAction;
 import com.niravramdhanie.twod.game.entity.BallPlayer;
+import com.niravramdhanie.twod.game.entity.Button;
 
 /**
  * Manages the rewind feature for the game.
@@ -31,6 +38,8 @@ public class RewindManager {
     private float playerStartY;
     private int timerStartValue;
     private List<ButtonState> initialButtonStates = new ArrayList<>();
+    private Map<String, Boolean> initialToggleStates = new HashMap<>();
+    private Map<String, Boolean> initialDoorStates = new HashMap<>();
     
     // Recorded actions
     private List<RecordedAction> recordedActions = new ArrayList<>();
@@ -39,6 +48,9 @@ public class RewindManager {
     private BallPlayer player;
     private List<Button> buttons;
     private TimerManager timer;
+    
+    // Map to track toggle states during replay
+    private Map<String, Boolean> currentToggleStates = new HashMap<>();
     
     /**
      * Creates a new RewindManager.
@@ -60,16 +72,36 @@ public class RewindManager {
         // Clear previous recordings
         recordedActions.clear();
         initialButtonStates.clear();
+        initialToggleStates.clear();
+        initialDoorStates.clear();
+        currentToggleStates.clear();
         
         // Record initial state
         playerStartX = player.getX();
         playerStartY = player.getY();
         timerStartValue = timer.getTime();
         
-        // Record initial button states
+        // Record initial button states and toggle states
         for (Button button : buttons) {
             String buttonId = getButtonId(button);
-            initialButtonStates.add(new ButtonState(buttonId, button.isActivated()));
+            boolean isActivated = button.isActivated();
+            initialButtonStates.add(new ButtonState(buttonId, isActivated));
+            
+            // Store toggle states for ToggleAction buttons
+            Action action = button.getAction();
+            if (action instanceof ToggleAction) {
+                ToggleAction toggleAction = (ToggleAction) action;
+                initialToggleStates.put(buttonId, toggleAction.isToggled());
+                
+                // Store door states for DoorActions inside ToggleActions
+                if (toggleAction.getOnAction() instanceof DoorAction) {
+                    DoorAction doorAction = (DoorAction) toggleAction.getOnAction();
+                    initialDoorStates.put(doorAction.getDoorId(), doorAction.isDoorOpen());
+                }
+            } else if (action instanceof DoorAction) {
+                DoorAction doorAction = (DoorAction) action;
+                initialDoorStates.put(doorAction.getDoorId(), doorAction.isDoorOpen());
+            }
         }
         
         // Set recording state
@@ -114,20 +146,43 @@ public class RewindManager {
         // Reset timer
         timer.setTime(timerStartValue);
         
-        // Reset button states
+        // Initialize current toggle states with the initial values
+        currentToggleStates.clear();
+        currentToggleStates.putAll(initialToggleStates);
+        
+        // Reset button states and toggle states
         for (ButtonState state : initialButtonStates) {
             for (Button button : buttons) {
                 String buttonId = getButtonId(button);
                 if (buttonId.equals(state.buttonId)) {
-                    if (state.activated) {
-                        button.activate();
-                    } else {
-                        button.deactivate();
+                    // Set button activation state without triggering actions
+                    button.setActivated(state.activated);
+                    
+                    // Handle toggle states using the new method
+                    boolean initialToggled = initialToggleStates.getOrDefault(buttonId, false);
+                    button.forceSetToggleState(initialToggled);
+                    
+                    // For actions that aren't toggles but might be DoorActions
+                    Action action = button.getAction();
+                    if (!(action instanceof ToggleAction) && action instanceof DoorAction) {
+                        DoorAction doorAction = (DoorAction) action;
+                        String doorId = doorAction.getDoorId();
+                        boolean initialDoorOpen = initialDoorStates.getOrDefault(doorId, false);
+                        doorAction.setDoorOpen(initialDoorOpen);
                     }
+                    
                     break;
                 }
             }
         }
+        
+        // Mark all actions as not applied
+        for (RecordedAction action : recordedActions) {
+            action.applied = false;
+        }
+        
+        // Sort actions by timestamp to ensure correct replay order
+        Collections.sort(recordedActions, Comparator.comparingLong(a -> a.timestamp));
         
         // Start rewinding
         currentState = RewindState.REWINDING;
@@ -154,6 +209,13 @@ public class RewindManager {
             if (action.timestamp <= currentRelativeTime && !action.applied) {
                 applyAction(action);
                 action.applied = true;
+                
+                // Add a small delay to make actions visually apparent
+                try {
+                    Thread.sleep(30);
+                } catch (InterruptedException e) {
+                    // Ignore
+                }
             }
         }
         
@@ -168,8 +230,39 @@ public class RewindManager {
         
         // If all actions are applied, reset rewind state
         if (allApplied) {
+            // Sync final states to ensure consistency
+            synchronizeFinalStates();
+            
+            // Reset rewind state
             currentState = RewindState.IDLE;
             System.out.println("Rewind: All actions replayed, returning to idle state");
+        }
+    }
+    
+    /**
+     * Synchronize final states to ensure consistency between buttons, toggles, and doors
+     */
+    private void synchronizeFinalStates() {
+        // Apply the current toggle states from our tracking
+        for (Button button : buttons) {
+            String buttonId = getButtonId(button);
+            Action action = button.getAction();
+            
+            // For toggle actions, apply the final tracked state
+            if (action instanceof ToggleAction) {
+                ToggleAction toggleAction = (ToggleAction) action;
+                if (currentToggleStates.containsKey(buttonId)) {
+                    boolean finalToggleState = currentToggleStates.get(buttonId);
+                    button.forceSetToggleState(finalToggleState);
+                }
+                
+                // Ensure door state is consistent
+                if (toggleAction.getOnAction() instanceof DoorAction) {
+                    DoorAction doorAction = (DoorAction) toggleAction.getOnAction();
+                    boolean toggledState = toggleAction.isToggled();
+                    doorAction.setDoorOpen(toggledState);
+                }
+            }
         }
     }
     
@@ -184,11 +277,32 @@ public class RewindManager {
             for (Button button : buttons) {
                 String buttonId = getButtonId(button);
                 if (buttonId.equals(action.buttonId)) {
+                    // Record the current state before making changes
+                    boolean wasActivated = button.isActivated();
+                    
+                    // Apply the action
                     if (action.activated) {
+                        // If activating a button, use the regular activate method
+                        // which will trigger any associated actions
                         button.activate();
+                        
+                        // Update toggle state tracking
+                        if (button.getAction() instanceof ToggleAction) {
+                            ToggleAction toggleAction = (ToggleAction) button.getAction();
+                            boolean newToggleState = toggleAction.isToggled();
+                            currentToggleStates.put(buttonId, newToggleState);
+                            
+                            // Ensure door state is consistent with toggle state
+                            if (toggleAction.getOnAction() instanceof DoorAction) {
+                                DoorAction doorAction = (DoorAction) toggleAction.getOnAction();
+                                doorAction.setDoorOpen(newToggleState);
+                            }
+                        }
                     } else {
-                        button.deactivate();
+                        // If deactivating, set without executing actions
+                        button.setActivated(false);
                     }
+                    
                     System.out.println("Rewind: Replayed button " + action.buttonId + 
                                      " " + (action.activated ? "activation" : "deactivation") + 
                                      " at time " + action.timestamp + "ms");
