@@ -1,13 +1,13 @@
-package com.vincentramdhanie.twod.game.entity;
+package com.niravramdhanie.twod.game.entity;
 
-import com.vincentramdhanie.twod.game.graphics.Animation;
-import com.vincentramdhanie.twod.game.graphics.SpriteSheet;
-import com.vincentramdhanie.twod.game.utils.ResourceLoader;
-
-import java.awt.Graphics2D;
 import java.awt.Color;
+import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.util.List;
+
+import com.niravramdhanie.twod.game.graphics.Animation;
+import com.niravramdhanie.twod.game.graphics.SpriteSheet;
+import com.niravramdhanie.twod.game.utils.ResourceLoader;
 
 public class BallPlayer extends Entity {
     // Movement flags
@@ -19,7 +19,6 @@ public class BallPlayer extends Entity {
     // Movement properties
     private float moveSpeed;
     private float maxSpeed;
-    private float friction;
     
     // Health properties
     private int health;
@@ -46,10 +45,9 @@ public class BallPlayer extends Entity {
         this.screenWidth = screenWidth;
         this.screenHeight = screenHeight;
         
-        // Set movement properties
-        moveSpeed = 0.5f;
-        maxSpeed = 5.0f;
-        friction = 0.1f;
+        // Set movement properties - instant movement with no friction
+        moveSpeed = 0.84f;   // 1.2f * 0.7 = 0.84f
+        maxSpeed = 2.8f;     // 4.0f * 0.7 = 2.8f
         
         // Set health properties
         this.maxHealth = 100;
@@ -129,58 +127,50 @@ public class BallPlayer extends Entity {
         // Track previous animation for transition checks
         Animation previousAnim = currentAnim;
         
-        // Handle movement
-        // Apply acceleration based on input
-        if (left) {
-            velocity.x -= moveSpeed;
-            if (velocity.x < -maxSpeed) velocity.x = -maxSpeed;
-            if (spritesLoaded) currentAnim = leftAnim;
-        }
-        if (right) {
-            velocity.x += moveSpeed;
-            if (velocity.x > maxSpeed) velocity.x = maxSpeed;
-            if (spritesLoaded) currentAnim = rightAnim;
-        }
-        if (up) {
-            velocity.y -= moveSpeed;
-            if (velocity.y < -maxSpeed) velocity.y = -maxSpeed;
-            if (spritesLoaded) currentAnim = upAnim;
-        }
-        if (down) {
-            velocity.y += moveSpeed;
-            if (velocity.y > maxSpeed) velocity.y = maxSpeed;
-            if (spritesLoaded) currentAnim = downAnim;
+        // Reset velocity immediately when no keys are pressed for instant stopping
+        if (!left && !right) velocity.x = 0;
+        if (!up && !down) velocity.y = 0;
+        
+        // Calculate input direction vector
+        float dirX = 0, dirY = 0;
+        if (left) dirX -= 1;
+        if (right) dirX += 1;
+        if (up) dirY -= 1;
+        if (down) dirY += 1;
+        
+        // Normalize diagonal movement
+        if (dirX != 0 && dirY != 0) {
+            // Calculate the normalized direction
+            float length = (float)Math.sqrt(dirX * dirX + dirY * dirY);
+            dirX /= length;
+            dirY /= length;
         }
         
-        // If no movement keys are pressed, use idle animation
-        if (!left && !right && !up && !down) {
+        // Apply movement only if keys are pressed (no acceleration buildup)
+        if (dirX != 0) {
+            velocity.x = dirX * maxSpeed;
+        }
+        
+        if (dirY != 0) {
+            velocity.y = dirY * maxSpeed;
+        }
+        
+        // Set appropriate animation based on movement direction
+        if (velocity.x < 0 && Math.abs(velocity.x) > Math.abs(velocity.y)) {
+            if (spritesLoaded) currentAnim = leftAnim;
+        } else if (velocity.x > 0 && Math.abs(velocity.x) > Math.abs(velocity.y)) {
+            if (spritesLoaded) currentAnim = rightAnim;
+        } else if (velocity.y < 0 && Math.abs(velocity.y) > Math.abs(velocity.x)) {
+            if (spritesLoaded) currentAnim = upAnim;
+        } else if (velocity.y > 0 && Math.abs(velocity.y) > Math.abs(velocity.x)) {
+            if (spritesLoaded) currentAnim = downAnim;
+        } else if (velocity.x == 0 && velocity.y == 0) {
             if (spritesLoaded) currentAnim = idleAnim;
         }
         
         // If animation changed, reset the animation
         if (previousAnim != currentAnim && currentAnim != null) {
             currentAnim.reset();
-        }
-        
-        // Apply friction
-        if (!left && !right) {
-            if (velocity.x > 0) {
-                velocity.x -= friction;
-                if (velocity.x < 0) velocity.x = 0;
-            } else if (velocity.x < 0) {
-                velocity.x += friction;
-                if (velocity.x > 0) velocity.x = 0;
-            }
-        }
-        
-        if (!up && !down) {
-            if (velocity.y > 0) {
-                velocity.y -= friction;
-                if (velocity.y < 0) velocity.y = 0;
-            } else if (velocity.y < 0) {
-                velocity.y += friction;
-                if (velocity.y > 0) velocity.y = 0;
-            }
         }
         
         // Calculate new position

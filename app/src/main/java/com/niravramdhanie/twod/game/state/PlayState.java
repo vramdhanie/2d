@@ -1,15 +1,15 @@
-package com.vincentramdhanie.twod.game.state;
+package com.niravramdhanie.twod.game.state;
 
-import com.vincentramdhanie.twod.game.core.GameStateManager;
-import com.vincentramdhanie.twod.game.entity.BallPlayer;
-import com.vincentramdhanie.twod.game.entity.Block;
-
-import java.awt.Graphics2D;
 import java.awt.Color;
+import java.awt.Graphics2D;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+
+import com.niravramdhanie.twod.game.core.GameStateManager;
+import com.niravramdhanie.twod.game.entity.BallPlayer;
+import com.niravramdhanie.twod.game.entity.Block;
 
 public class PlayState extends GameState {
     private BallPlayer player;
