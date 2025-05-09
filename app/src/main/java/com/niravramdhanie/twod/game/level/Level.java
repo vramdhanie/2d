@@ -103,44 +103,6 @@ public class Level {
     }
     
     /**
-     * Adds blocks at random positions on the grid.
-     * 
-     * @param count The number of blocks to add
-     */
-    public void addRandomBlocks(int count) {
-        int horizontalCells = grid.getHorizontalCells();
-        int verticalCells = grid.getVerticalCells();
-        
-        // Reserve space for player at bottom center
-        int playerGridX = horizontalCells / 2;
-        int playerGridY = verticalCells - 3;
-        int reserveRadius = 2;
-        
-        for (int i = 0; i < count; i++) {
-            int attempts = 0;
-            boolean placed = false;
-            
-            while (!placed && attempts < 100) {
-                int gridX = random.nextInt(horizontalCells);
-                int gridY = random.nextInt(verticalCells);
-                
-                // Avoid the player spawn area
-                if (Math.abs(gridX - playerGridX) <= reserveRadius && 
-                    Math.abs(gridY - playerGridY) <= reserveRadius) {
-                    attempts++;
-                    continue;
-                }
-                
-                if (addBlock(gridX, gridY)) {
-                    placed = true;
-                } else {
-                    attempts++;
-                }
-            }
-        }
-    }
-    
-    /**
      * Creates a border of blocks around the level.
      */
     public void addBorderBlocks() {
@@ -158,6 +120,16 @@ public class Level {
             addBlock(0, y);
             addBlock(horizontalCells - 1, y);
         }
+    }
+    
+    /**
+     * Creates the first level layout with blocks and designated areas.
+     */
+    public void createLevel1() {
+        clearLevel();
+        
+        // Add border blocks
+        addBorderBlocks();
     }
     
     /**
@@ -232,86 +204,12 @@ public class Level {
     }
     
     /**
-     * Finds a suitable position for a button where it won't overlap with blocks.
-     * 
-     * @return An array containing the grid X and Y coordinates, or null if no position was found
-     */
-    public int[] findSuitableButtonPosition() {
-        int horizontalCells = grid.getHorizontalCells();
-        int verticalCells = grid.getVerticalCells();
-        int attempts = 0;
-        int maxAttempts = 100;
-        
-        while (attempts < maxAttempts) {
-            int gridX = random.nextInt(horizontalCells);
-            int gridY = random.nextInt(verticalCells);
-            
-            // Check if the position is unoccupied
-            if (!grid.isOccupied(gridX, gridY)) {
-                return new int[] {gridX, gridY};
-            }
-            
-            attempts++;
-        }
-        
-        // Couldn't find a suitable position
-        return null;
-    }
-    
-    /**
      * Gets the grid system.
      * 
      * @return The grid system
      */
     public GridSystem getGrid() {
         return grid;
-    }
-    
-    /**
-     * Creates a predefined level layout.
-     * 
-     * @param layoutType The type of layout to create (1, 2, 3, etc.)
-     */
-    public void createLayout(int layoutType) {
-        clearLevel();
-        
-        switch (layoutType) {
-            case 1:
-                // Border with some blocks in the middle
-                addBorderBlocks();
-                addBlock(5, 5);
-                addBlock(5, 6);
-                addBlock(6, 5);
-                addBlock(10, 8);
-                addBlock(11, 8);
-                addBlock(12, 8);
-                break;
-                
-            case 2:
-                // Maze-like pattern
-                addBorderBlocks();
-                // Horizontal walls
-                for (int x = 5; x < 10; x++) {
-                    addBlock(x, 5);
-                    addBlock(x + 5, 10);
-                }
-                // Vertical walls
-                for (int y = 6; y < 10; y++) {
-                    addBlock(5, y);
-                    addBlock(15, y);
-                }
-                break;
-                
-            case 3:
-                // Random scattered blocks
-                addRandomBlocks(20);
-                break;
-                
-            default:
-                // Default: just add 10 random blocks
-                addRandomBlocks(10);
-                break;
-        }
     }
     
     /**

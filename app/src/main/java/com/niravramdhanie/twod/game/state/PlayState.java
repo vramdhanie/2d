@@ -9,9 +9,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+import com.niravramdhanie.twod.game.actions.Action;
 import com.niravramdhanie.twod.game.actions.DoorAction;
 import com.niravramdhanie.twod.game.actions.DoorController;
-import com.niravramdhanie.twod.game.actions.ToggleAction;
+import com.niravramdhanie.twod.game.actions.MultiButtonAction;
+import com.niravramdhanie.twod.game.actions.TimedAction;
 import com.niravramdhanie.twod.game.core.GameStateManager;
 import com.niravramdhanie.twod.game.entity.BallPlayer;
 import com.niravramdhanie.twod.game.entity.Block;
@@ -49,6 +51,16 @@ public class PlayState extends GameState {
     private DoorController doorController;
     private String doorId = "main_door";
     
+    // Button IDs
+    private String buttonTopId = "button_top";
+    private String buttonBottomId = "button_bottom";
+    
+    // List for timed actions that need updates
+    private List<TimedAction> timedActions = new ArrayList<>();
+    
+    // Multi-button action for two buttons
+    private MultiButtonAction multiButtonAction;
+    
     // New variables for button highlighting
     private List<Button> nearButtons = new ArrayList<>();
     
@@ -78,23 +90,23 @@ public class PlayState extends GameState {
         // Create the level with a grid
         level = new Level(screenWidth, screenHeight, GRID_CELL_SIZE);
         
-        // Create a level layout with random blocks
-        level.addRandomBlocks(10);
+        // Create level 1 layout with border blocks
+        level.createLevel1();
         
         // Initialize door controller
         doorController = new DoorController();
         
-        // Add the door and toggle button to the level
-        addDoorWithToggleButton();
+        // Add the door and buttons
+        setupLevel1();
         
         try {
-            // Create player in the lower middle of the screen
+            // Create player in the middle left of the screen
             int gridCellSize = level.getGrid().getCellSize();
             int playerSize = gridCellSize; // Make player the same size as grid cells
             
-            // Position player at the bottom middle of the grid
-            int gridX = level.getGrid().getHorizontalCells() / 2;
-            int gridY = level.getGrid().getVerticalCells() - 3;
+            // Position player at the middle left of the grid
+            int gridX = 2; // A few cells from the left border
+            int gridY = level.getGrid().getVerticalCells() / 2;
             int playerX = level.getGrid().gridToScreenX(gridX);
             int playerY = level.getGrid().gridToScreenY(gridY);
             
@@ -126,6 +138,141 @@ public class PlayState extends GameState {
     }
     
     /**
+     * Sets up the level 1 layout with door and timed buttons
+     */
+    private void setupLevel1() {
+        int cellSize = level.getGrid().getCellSize();
+        int horizontalCells = level.getGrid().getHorizontalCells();
+        int verticalCells = level.getGrid().getVerticalCells();
+        
+        // Create the door in the middle of the right side
+        int doorGridX = horizontalCells - 2; // One cell from the right border
+        int doorGridY = verticalCells / 2;
+        
+        float doorX = level.getGrid().gridToScreenX(doorGridX);
+        float doorY = level.getGrid().gridToScreenY(doorGridY);
+        door = new Door(doorX, doorY, cellSize, cellSize, doorId);
+        level.addEntity(door, doorGridX, doorGridY);
+        
+        // Register door with controller
+        doorController.registerDoor(door);
+        
+        // Create a door action that the multi-button action will control
+        DoorAction doorAction = new DoorAction(doorId);
+        doorAction.setDoorStateChangeListener(doorController);
+        
+        // Create a multi-button action that requires both buttons
+        // Use permanent activation so door stays open once opened
+        multiButtonAction = new MultiButtonAction(doorAction, true);
+        multiButtonAction.addRequiredButton(buttonTopId);
+        multiButtonAction.addRequiredButton(buttonBottomId);
+        
+        // Create the top button (1-second timer)
+        int topButtonGridX = horizontalCells / 2;
+        int topButtonGridY = 2; // Two cells from the top
+        
+        float topButtonX = level.getGrid().gridToScreenX(topButtonGridX);
+        float topButtonY = level.getGrid().gridToScreenY(topButtonGridY);
+        
+        // Create a timed action for the top button
+        TimedAction topTimedAction = createTimedButtonAction(buttonTopId, 1000); // 1 second
+        
+        Button topButton = new Button(topButtonX, topButtonY, cellSize, cellSize, topTimedAction);
+        topButton.setColor(new Color(200, 80, 80)); // Red when inactive
+        topButton.setActiveColor(new Color(255, 100, 100)); // Brighter red when active
+        level.addEntity(topButton, topButtonGridX, topButtonGridY);
+        
+        // Register the timed action for updates
+        timedActions.add(topTimedAction);
+        
+        // Create the bottom button (1-second timer)
+        int bottomButtonGridX = horizontalCells / 2;
+        int bottomButtonGridY = verticalCells - 3; // Two cells from the bottom
+        
+        float bottomButtonX = level.getGrid().gridToScreenX(bottomButtonGridX);
+        float bottomButtonY = level.getGrid().gridToScreenY(bottomButtonGridY);
+        
+        // Create a timed action for the bottom button
+        TimedAction bottomTimedAction = createTimedButtonAction(buttonBottomId, 1000); // 1 second
+        
+        Button bottomButton = new Button(bottomButtonX, bottomButtonY, cellSize, cellSize, bottomTimedAction);
+        bottomButton.setColor(new Color(80, 80, 200)); // Blue when inactive
+        bottomButton.setActiveColor(new Color(100, 100, 255)); // Brighter blue when active
+        level.addEntity(bottomButton, bottomButtonGridX, bottomButtonGridY);
+        
+        // Register the timed action for updates
+        timedActions.add(bottomTimedAction);
+        
+        // Start with the door closed
+        door.close();
+        
+        System.out.println("Level 1 setup complete with door and two timed buttons");
+    }
+    
+    /**
+     * Creates a timed action that updates the multi-button action when a button is pressed
+     */
+    private TimedAction createTimedButtonAction(String buttonId, long duration) {
+        // Create action that updates the multi-button action when activated
+        Action activateAction = new UpdateMultiButtonAction(buttonId, true);
+        
+        // Create action that updates when deactivated
+        Action deactivateAction = new UpdateMultiButtonAction(buttonId, false);
+        
+        // Create timed action with both activate and deactivate actions
+        TimedAction timedAction = new TimedAction(activateAction, duration);
+        timedAction.setDeactivateAction(deactivateAction);
+        
+        return timedAction;
+    }
+    
+    /**
+     * Inner class for actions that update the multi-button state
+     */
+    private class UpdateMultiButtonAction implements Action {
+        private String buttonId;
+        private boolean activated;
+        
+        public UpdateMultiButtonAction(String buttonId, boolean activated) {
+            this.buttonId = buttonId;
+            this.activated = activated;
+        }
+        
+        @Override
+        public void execute() {
+            // Update the multi-button action with this button's state
+            boolean changed = multiButtonAction.updateButtonState(buttonId, activated);
+            
+            // Always respect permanent activation - never close the door once it's been fully activated
+            if (multiButtonAction.isPermanentlyActivated()) {
+                // Ensure door stays open if permanently activated
+                if (door != null && !door.isOpen()) {
+                    door.open();
+                    System.out.println("Door will remain open permanently!");
+                }
+                return;
+            }
+            
+            // Only handle non-permanent state below this point
+            
+            // If a button is deactivated and we haven't achieved permanent activation yet,
+            // make sure the door is closed
+            if (!activated) {
+                // Manually update the door state to ensure it closes
+                if (door != null && door.isOpen()) {
+                    door.close();
+                    System.out.println("Door closed - both buttons must be pressed simultaneously!");
+                }
+            }
+        }
+        
+        @Override
+        public String getDescription() {
+            return "Update " + buttonId + " to " + (activated ? "activated" : "deactivated");
+        }
+    }
+    
+    /**
      * Get the remaining time in seconds
      * @return Remaining time in seconds (0 if timer has expired)
      */
@@ -139,7 +286,13 @@ public class PlayState extends GameState {
      * @param layoutType The type of layout to create
      */
     public void setLevelLayout(int layoutType) {
-        level.createLayout(layoutType);
+        // Clear the level
+        level.clearLevel();
+        
+        // Recreate level 1
+        level.createLevel1();
+        
+        // Update player blocks
         player.setBlocks(level.getBlocks());
     }
     
@@ -156,6 +309,11 @@ public class PlayState extends GameState {
                 rewindManager.update();
             }
             
+            // Update timed actions
+            for (TimedAction timedAction : timedActions) {
+                timedAction.update();
+            }
+            
             // Update level (includes buttons, etc.)
             level.update();
             
@@ -166,6 +324,13 @@ public class PlayState extends GameState {
             
             // Check for interaction with buttons
             checkButtonHighlights();
+            
+            // Check if door has been successfully opened for the first time
+            if (multiButtonAction != null && multiButtonAction.isPermanentlyActivated() && door != null && !door.isOpen()) {
+                // Force the door to open if it's not already open
+                door.open();
+                System.out.println("Door permanently opened! It will not close again.");
+            }
             
             // Update door collision if necessary
             updateDoorCollision();
@@ -434,53 +599,6 @@ public class PlayState extends GameState {
         player.setBlocks(blocks);
     }
     
-    /**
-     * Adds test buttons to the level
-     */
-    private void addTestButtons() {
-        // Method intentionally left empty since we're using only the door toggle button
-    }
-    
-    /**
-     * Adds a door and a toggle button to control it
-     */
-    private void addDoorWithToggleButton() {
-        int cellSize = level.getGrid().getCellSize();
-        int horizontalCells = level.getGrid().getHorizontalCells();
-        int verticalCells = level.getGrid().getVerticalCells();
-        
-        // Place door in the middle right of the level
-        int doorGridX = horizontalCells - 5;
-        int doorGridY = verticalCells / 2;
-        
-        // Create the door
-        float doorX = level.getGrid().gridToScreenX(doorGridX);
-        float doorY = level.getGrid().gridToScreenY(doorGridY);
-        door = new Door(doorX, doorY, cellSize, cellSize, doorId);
-        level.addEntity(door, doorGridX, doorGridY);
-        
-        // Register door with controller
-        doorController.registerDoor(door);
-        
-        // Place button in the middle left of the level
-        int buttonGridX = 5;
-        int buttonGridY = verticalCells / 2;
-        
-        // Create a door action
-        DoorAction doorAction = new DoorAction(doorId);
-        doorAction.setDoorStateChangeListener(doorController);
-        
-        // Create a toggle action for the door
-        ToggleAction toggleAction = new ToggleAction(doorAction, doorAction);
-        
-        // Create button with the toggle action
-        Button doorButton = new Button(0, 0, cellSize, cellSize, toggleAction);
-        level.addEntity(doorButton, buttonGridX, buttonGridY);
-        
-        System.out.println("Added door at " + doorGridX + "," + doorGridY + 
-                          " and toggle button at " + buttonGridX + "," + buttonGridY);
-    }
-    
     @Override
     public void keyPressed(int k) {
         // Handle player movement
@@ -514,11 +632,10 @@ public class PlayState extends GameState {
             rewindManager.toggleRewind();
         }
         
-        // Level layout switching for testing
-        if (k == KeyEvent.VK_1) setLevelLayout(1);
-        if (k == KeyEvent.VK_2) setLevelLayout(2);
-        if (k == KeyEvent.VK_3) setLevelLayout(3);
-        if (k == KeyEvent.VK_0) setLevelLayout(0); // Random blocks (changed from R to 0)
+        // For now, all level layout keys just reset to level 1
+        if (k == KeyEvent.VK_1 || k == KeyEvent.VK_2 || k == KeyEvent.VK_3 || k == KeyEvent.VK_0) {
+            setLevelLayout(1);
+        }
     }
     
     @Override

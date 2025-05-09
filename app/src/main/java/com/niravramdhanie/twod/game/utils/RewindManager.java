@@ -9,6 +9,7 @@ import java.util.Map;
 
 import com.niravramdhanie.twod.game.actions.Action;
 import com.niravramdhanie.twod.game.actions.DoorAction;
+import com.niravramdhanie.twod.game.actions.TimedAction;
 import com.niravramdhanie.twod.game.actions.ToggleAction;
 import com.niravramdhanie.twod.game.entity.BallPlayer;
 import com.niravramdhanie.twod.game.entity.Button;
@@ -85,10 +86,19 @@ public class RewindManager {
         for (Button button : buttons) {
             String buttonId = getButtonId(button);
             boolean isActivated = button.isActivated();
-            initialButtonStates.add(new ButtonState(buttonId, isActivated));
+            
+            // Check if the button has a TimedAction and record its state
+            boolean hasTimedAction = false;
+            boolean timedActionActive = false;
+            Action action = button.getAction();
+            if (action instanceof TimedAction) {
+                hasTimedAction = true;
+                timedActionActive = ((TimedAction) action).isActive();
+            }
+            
+            initialButtonStates.add(new ButtonState(buttonId, isActivated, hasTimedAction, timedActionActive));
             
             // Store toggle states for ToggleAction buttons
-            Action action = button.getAction();
             if (action instanceof ToggleAction) {
                 ToggleAction toggleAction = (ToggleAction) action;
                 initialToggleStates.put(buttonId, toggleAction.isToggled());
@@ -158,12 +168,18 @@ public class RewindManager {
                     // Set button activation state without triggering actions
                     button.setActivated(state.activated);
                     
+                    // Handle TimedAction states
+                    Action action = button.getAction();
+                    if (state.hasTimedAction && action instanceof TimedAction) {
+                        TimedAction timedAction = (TimedAction) action;
+                        timedAction.setActive(state.timedActionActive);
+                    }
+                    
                     // Handle toggle states using the new method
                     boolean initialToggled = initialToggleStates.getOrDefault(buttonId, false);
                     button.forceSetToggleState(initialToggled);
                     
                     // For actions that aren't toggles but might be DoorActions
-                    Action action = button.getAction();
                     if (!(action instanceof ToggleAction) && action instanceof DoorAction) {
                         DoorAction doorAction = (DoorAction) action;
                         String doorId = doorAction.getDoorId();
@@ -286,6 +302,15 @@ public class RewindManager {
                         // which will trigger any associated actions
                         button.activate();
                         
+                        // Ensure TimedAction visual state is updated
+                        Action buttonAction = button.getAction();
+                        if (buttonAction instanceof TimedAction) {
+                            TimedAction timedAction = (TimedAction) buttonAction;
+                            if (!timedAction.isActive()) {
+                                timedAction.setActive(true);
+                            }
+                        }
+                        
                         // Update toggle state tracking
                         if (button.getAction() instanceof ToggleAction) {
                             ToggleAction toggleAction = (ToggleAction) button.getAction();
@@ -299,8 +324,18 @@ public class RewindManager {
                             }
                         }
                     } else {
-                        // If deactivating, set without executing actions
-                        button.setActivated(false);
+                        // If deactivating, use the proper deactivate method 
+                        // which will update visual indicators properly
+                        button.deactivate();
+                        
+                        // Ensure TimedAction visual state is updated
+                        Action buttonAction = button.getAction();
+                        if (buttonAction instanceof TimedAction) {
+                            TimedAction timedAction = (TimedAction) buttonAction;
+                            if (timedAction.isActive()) {
+                                timedAction.setActive(false);
+                            }
+                        }
                     }
                     
                     System.out.println("Rewind: Replayed button " + action.buttonId + 
@@ -357,10 +392,21 @@ public class RewindManager {
     private static class ButtonState {
         String buttonId;
         boolean activated;
+        boolean hasTimedAction;
+        boolean timedActionActive;
         
         ButtonState(String buttonId, boolean activated) {
             this.buttonId = buttonId;
             this.activated = activated;
+            this.hasTimedAction = false;
+            this.timedActionActive = false;
+        }
+        
+        ButtonState(String buttonId, boolean activated, boolean hasTimedAction, boolean timedActionActive) {
+            this.buttonId = buttonId;
+            this.activated = activated;
+            this.hasTimedAction = hasTimedAction;
+            this.timedActionActive = timedActionActive;
         }
     }
     

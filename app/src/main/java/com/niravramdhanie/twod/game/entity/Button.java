@@ -35,6 +35,10 @@ public class Button extends Entity {
     // Reference to the rewind manager
     private static RewindManager rewindManager;
     
+    // Visual effects for activation
+    private long activationTime;
+    private boolean pulseEffect;
+    
     static {
         // Initialize the icon font
         iconFont = new Font("Arial", Font.BOLD, 14);
@@ -53,6 +57,8 @@ public class Button extends Entity {
         super(x, y, width, height);
         this.action = action;
         this.activated = false;
+        this.pulseEffect = true;
+        this.activationTime = 0;
         
         // Default colors
         this.color = new Color(200, 50, 50); // Red when inactive
@@ -88,7 +94,14 @@ public class Button extends Entity {
     
     @Override
     public void update() {
-        // Button behavior updates handled in activation methods
+        // Update activation time for effects
+        if (activated) {
+            if (activationTime == 0) {
+                activationTime = System.currentTimeMillis();
+            }
+        } else {
+            activationTime = 0;
+        }
     }
     
     @Override
@@ -106,6 +119,11 @@ public class Button extends Entity {
                 if (action instanceof TimedAction && activated) {
                     drawTimerBar(g);
                 }
+            }
+            
+            // Draw activation glow if activated
+            if (activated) {
+                drawActivationIndicator(g);
             }
         } catch (Exception e) {
             // Ultimate fallback
@@ -262,43 +280,37 @@ public class Button extends Entity {
     }
     
     /**
-     * Draws a timer bar for timed actions.
-     * 
-     * @param g The graphics context
+     * Draws a timer bar for timed actions
      */
     private void drawTimerBar(Graphics2D g) {
+        if (!(action instanceof TimedAction)) return;
+        
         TimedAction timedAction = (TimedAction) action;
-        long currentTime = System.currentTimeMillis();
-        long activationTime = timedAction.getActivationTime();
-        int durationMillis = timedAction.getDuration();
+        if (!timedAction.isActive()) return;
         
-        if (activationTime == 0) {
-            // Fallback if activation time is not available
-            activationTime = currentTime - 100;
-        }
+        // Store original color
+        Color originalColor = g.getColor();
         
-        float progress = Math.min(1.0f, (float)(currentTime - activationTime) / durationMillis);
+        // Get the timer fraction (0.0 to 1.0)
+        float fraction = timedAction.getTimeRemainingFraction();
         
-        // Draw timer bar underneath the button
-        int barHeight = 5;
-        int barWidth = (int)((1.0f - progress) * width);
+        // Draw the timer bar background
+        g.setColor(Color.DARK_GRAY);
+        g.fillRect((int)position.x, (int)position.y + height + 2, width, 4);
         
-        // Calculate color based on remaining time (green->yellow->red)
-        float remainingRatio = 1.0f - progress;
-        Color timerColor;
-        if (remainingRatio > 0.6f) {
-            timerColor = Color.GREEN;
-        } else if (remainingRatio > 0.3f) {
-            timerColor = Color.YELLOW;
+        // Draw the timer bar foreground
+        if (fraction > 0.6f) {
+            g.setColor(Color.GREEN);
+        } else if (fraction > 0.3f) {
+            g.setColor(Color.YELLOW);
         } else {
-            timerColor = Color.RED;
+            g.setColor(Color.RED);
         }
         
-        g.setColor(timerColor);
-        g.fillRect((int)position.x, (int)position.y + height + 2, barWidth, barHeight);
+        g.fillRect((int)position.x, (int)position.y + height + 2, (int)(width * fraction), 4);
         
-        g.setColor(Color.WHITE);
-        g.drawRect((int)position.x, (int)position.y + height + 2, width, barHeight);
+        // Restore original color
+        g.setColor(originalColor);
     }
     
     /**
@@ -350,6 +362,42 @@ public class Button extends Entity {
             g.setColor(Color.BLACK);
             g.drawString("!", indicatorX + indicatorSize/3, indicatorY + 2*indicatorSize/3);
         }
+    }
+    
+    /**
+     * Draws a visual indicator that the button is activated
+     */
+    private void drawActivationIndicator(Graphics2D g) {
+        // Store original color
+        Color originalColor = g.getColor();
+        
+        // Create a pulsating effect
+        float alpha = 0.7f;
+        if (pulseEffect) {
+            long elapsed = System.currentTimeMillis() - activationTime;
+            alpha = 0.3f + (float)Math.abs(Math.sin(elapsed * 0.005f)) * 0.4f;
+        }
+        
+        // Draw a glowing outline
+        g.setColor(new Color(
+            activeColor.getRed() / 255f,
+            activeColor.getGreen() / 255f,
+            activeColor.getBlue() / 255f,
+            alpha
+        ));
+        
+        // Draw outer glow
+        int glowSize = 4;
+        g.fillRoundRect(
+            (int)position.x - glowSize,
+            (int)position.y - glowSize,
+            width + glowSize * 2,
+            height + glowSize * 2,
+            10, 10
+        );
+        
+        // Restore original color
+        g.setColor(originalColor);
     }
     
     /**
@@ -495,5 +543,22 @@ public class Button extends Entity {
      */
     public void setActivated(boolean activated) {
         this.activated = activated;
+        
+        // Update activation time when the button is activated during rewind
+        // to ensure the visual indicator plays properly
+        if (activated) {
+            this.activationTime = System.currentTimeMillis();
+        } else {
+            this.activationTime = 0;
+        }
+    }
+    
+    /**
+     * Sets whether this button should use a pulsating effect when activated.
+     * 
+     * @param pulseEffect True to enable pulsing, false for static activation indicators
+     */
+    public void setPulseEffect(boolean pulseEffect) {
+        this.pulseEffect = pulseEffect;
     }
 } 
