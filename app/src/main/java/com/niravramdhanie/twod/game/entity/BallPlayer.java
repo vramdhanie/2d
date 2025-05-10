@@ -40,10 +40,14 @@ public class BallPlayer extends Entity {
     private int screenHeight;
     private List<Block> blocks;
     
+    // Box carrying
+    private Box carriedBox;
+    
     public BallPlayer(float x, float y, int width, int height, int screenWidth, int screenHeight) {
         super(x, y, width, height);
         this.screenWidth = screenWidth;
         this.screenHeight = screenHeight;
+        this.carriedBox = null;
         
         // Set movement properties - instant movement with no friction
         moveSpeed = 0.84f;   // 1.2f * 0.7 = 0.84f
@@ -122,6 +126,33 @@ public class BallPlayer extends Entity {
         this.blocks = blocks;
     }
     
+    /**
+     * Sets the box being carried by the player.
+     * 
+     * @param box The box being carried, or null if not carrying any box
+     */
+    public void setCarriedBox(Box box) {
+        this.carriedBox = box;
+    }
+    
+    /**
+     * Gets the box being carried by the player.
+     * 
+     * @return The box being carried, or null if not carrying any box
+     */
+    public Box getCarriedBox() {
+        return carriedBox;
+    }
+    
+    /**
+     * Checks if the player is carrying a box.
+     * 
+     * @return True if carrying a box, false otherwise
+     */
+    public boolean isCarryingBox() {
+        return carriedBox != null;
+    }
+    
     @Override
     public void update() {
         // Track previous animation for transition checks
@@ -186,35 +217,21 @@ public class BallPlayer extends Entity {
         // Check block collisions for X movement
         boolean collisionX = false;
         position.x = newX;
-        for (Block block : blocks) {
-            if (checkCollision(block)) {
-                collisionX = true;
-                // Resolve X collision
-                if (velocity.x > 0) { // Moving right
-                    position.x = block.getX() - width;
-                } else if (velocity.x < 0) { // Moving left
-                    position.x = block.getX() + block.getWidth();
-                }
-                velocity.x = 0;
-                break;
-            }
+        
+        if (checkBlockCollisionX()) {
+            collisionX = true;
+            // Position already corrected in checkBlockCollisionX()
+            velocity.x = 0;
         }
         
         // Check block collisions for Y movement
         boolean collisionY = false;
         position.y = newY;
-        for (Block block : blocks) {
-            if (checkCollision(block)) {
-                collisionY = true;
-                // Resolve Y collision
-                if (velocity.y > 0) { // Moving down
-                    position.y = block.getY() - height;
-                } else if (velocity.y < 0) { // Moving up
-                    position.y = block.getY() + block.getHeight();
-                }
-                velocity.y = 0;
-                break;
-            }
+        
+        if (checkBlockCollisionY()) {
+            collisionY = true;
+            // Position already corrected in checkBlockCollisionY()
+            velocity.y = 0;
         }
         
         // If no collision occurred, move normally
@@ -294,4 +311,134 @@ public class BallPlayer extends Entity {
     public void setRight(boolean right) { this.right = right; }
     public void setUp(boolean up) { this.up = up; }
     public void setDown(boolean down) { this.down = down; }
+    
+    /**
+     * Gets the player's velocity vector.
+     * 
+     * @return The velocity vector
+     */
+    public com.niravramdhanie.twod.game.utils.Vector2D getVelocity() {
+        return velocity;
+    }
+    
+    /**
+     * Checks for X-axis collisions with blocks.
+     * When carrying a box, the box acts as an extension of the player's hitbox.
+     * 
+     * @return True if a collision occurred, false otherwise
+     */
+    private boolean checkBlockCollisionX() {
+        // First check player collision with blocks (but not with the carried box)
+        for (Block block : blocks) {
+            if (block != carriedBox && checkCollision(block)) {
+                // Resolve X collision
+                if (velocity.x > 0) { // Moving right
+                    position.x = block.getX() - width;
+                } else if (velocity.x < 0) { // Moving left
+                    position.x = block.getX() + block.getWidth();
+                }
+                velocity.x = 0;
+                return true;
+            }
+        }
+        
+        // If carrying a box, check if the box would collide with any blocks
+        if (carriedBox != null && velocity.x != 0) {
+            // Calculate where the box would be after the player's movement
+            float boxX = position.x + width/2 - carriedBox.getWidth()/2 + carriedBox.getRelativeX();
+            float boxY = position.y + height/2 - carriedBox.getHeight()/2 + carriedBox.getRelativeY();
+            
+            // Create a rectangle representing the box's position
+            java.awt.Rectangle boxBounds = new java.awt.Rectangle(
+                (int)boxX, (int)boxY, carriedBox.getWidth(), carriedBox.getHeight()
+            );
+            
+            // Check for collisions with any block
+            for (Block block : blocks) {
+                if (block != carriedBox) {
+                    java.awt.Rectangle blockBounds = block.getBounds();
+                    
+                    if (boxBounds.intersects(blockBounds)) {
+                        // Resolve collision just like we would for the player
+                        if (velocity.x > 0) { // Moving right
+                            position.x = block.getX() - width - (boxX + carriedBox.getWidth() - position.x - width);
+                        } else if (velocity.x < 0) { // Moving left
+                            position.x = block.getX() + block.getWidth() - (boxX - position.x);
+                        }
+                        velocity.x = 0;
+                        return true;
+                    }
+                }
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Checks for Y-axis collisions with blocks.
+     * When carrying a box, the box acts as an extension of the player's hitbox.
+     * 
+     * @return True if a collision occurred, false otherwise
+     */
+    private boolean checkBlockCollisionY() {
+        // First check player collision with blocks (but not with the carried box)
+        for (Block block : blocks) {
+            if (block != carriedBox && checkCollision(block)) {
+                // Resolve Y collision
+                if (velocity.y > 0) { // Moving down
+                    position.y = block.getY() - height;
+                } else if (velocity.y < 0) { // Moving up
+                    position.y = block.getY() + block.getHeight();
+                }
+                velocity.y = 0;
+                return true;
+            }
+        }
+        
+        // If carrying a box, check if the box would collide with any blocks
+        if (carriedBox != null && velocity.y != 0) {
+            // Calculate where the box would be after the player's movement
+            float boxX = position.x + width/2 - carriedBox.getWidth()/2 + carriedBox.getRelativeX();
+            float boxY = position.y + height/2 - carriedBox.getHeight()/2 + carriedBox.getRelativeY();
+            
+            // Create a rectangle representing the box's position
+            java.awt.Rectangle boxBounds = new java.awt.Rectangle(
+                (int)boxX, (int)boxY, carriedBox.getWidth(), carriedBox.getHeight()
+            );
+            
+            // Check for collisions with any block
+            for (Block block : blocks) {
+                if (block != carriedBox) {
+                    java.awt.Rectangle blockBounds = block.getBounds();
+                    
+                    if (boxBounds.intersects(blockBounds)) {
+                        // Resolve collision just like we would for the player
+                        if (velocity.y > 0) { // Moving down
+                            position.y = block.getY() - height - (boxY + carriedBox.getHeight() - position.y - height);
+                        } else if (velocity.y < 0) { // Moving up
+                            position.y = block.getY() + block.getHeight() - (boxY - position.y);
+                        }
+                        velocity.y = 0;
+                        return true;
+                    }
+                }
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Override collision detection to disable collision with the carried box
+     */
+    @Override
+    public boolean checkCollision(Entity other) {
+        // Don't collide with the box we're carrying
+        if (carriedBox != null && other == carriedBox) {
+            return false;
+        }
+        // Use standard collision detection for everything else
+        return super.checkCollision(other);
+    }
 }

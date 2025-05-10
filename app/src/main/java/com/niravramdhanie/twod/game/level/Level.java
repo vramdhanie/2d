@@ -133,6 +133,18 @@ public class Level {
     }
     
     /**
+     * Creates the second level layout with blocks and designated areas.
+     */
+    public void createLevel2() {
+        clearLevel();
+        
+        // Add border blocks for level 2
+        addBorderBlocks();
+        
+        // Additional level 2 specific layout will be added here later
+    }
+    
+    /**
      * Updates all entities in the level.
      */
     public void update() {

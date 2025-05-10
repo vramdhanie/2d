@@ -17,8 +17,10 @@ import com.niravramdhanie.twod.game.actions.TimedAction;
 import com.niravramdhanie.twod.game.core.GameStateManager;
 import com.niravramdhanie.twod.game.entity.BallPlayer;
 import com.niravramdhanie.twod.game.entity.Block;
+import com.niravramdhanie.twod.game.entity.Box;
 import com.niravramdhanie.twod.game.entity.Button;
 import com.niravramdhanie.twod.game.entity.Door;
+import com.niravramdhanie.twod.game.entity.Entity;
 import com.niravramdhanie.twod.game.level.Level;
 import com.niravramdhanie.twod.game.utils.RewindManager;
 import com.niravramdhanie.twod.game.utils.TimerManager;
@@ -64,6 +66,13 @@ public class PlayState extends GameState {
     // New variables for button highlighting
     private List<Button> nearButtons = new ArrayList<>();
     
+    // Track current level number
+    private int currentLevel = 1;
+    
+    // Box handling
+    private Box carriedBox = null;
+    private List<Box> nearBoxes = new ArrayList<>();
+    
     public PlayState(GameStateManager gsm, int screenWidth, int screenHeight) {
         super(gsm);
         this.screenWidth = screenWidth;
@@ -89,6 +98,9 @@ public class PlayState extends GameState {
         
         // Create the level with a grid
         level = new Level(screenWidth, screenHeight, GRID_CELL_SIZE);
+        
+        // Set current level to 1
+        currentLevel = 1;
         
         // Create level 1 layout with border blocks
         level.createLevel1();
@@ -128,6 +140,9 @@ public class PlayState extends GameState {
             
             // Set the rewind manager for buttons
             Button.setRewindManager(rewindManager);
+            
+            // Update rewind manager with boxes (if any)
+            updateRewindManager();
             
             initialized = true;
             System.out.println("PlayState initialization complete");
@@ -282,6 +297,55 @@ public class PlayState extends GameState {
     }
     
     /**
+     * Sets up the level 2 layout
+     */
+    private void setupLevel2() {
+        int cellSize = level.getGrid().getCellSize();
+        int horizontalCells = level.getGrid().getHorizontalCells();
+        int verticalCells = level.getGrid().getVerticalCells();
+        
+        // Add a movable, active box in the middle of level 2
+        int boxGridX = horizontalCells / 2;
+        int boxGridY = verticalCells / 2;
+        
+        float boxX = level.getGrid().gridToScreenX(boxGridX);
+        float boxY = level.getGrid().gridToScreenY(boxGridY);
+        
+        Box box = new Box(boxX, boxY, cellSize, cellSize, true, true);
+        level.addEntity(box, boxGridX, boxGridY);
+        
+        // Update the rewind manager with the box list
+        updateRewindManager();
+        
+        System.out.println("Level 2 setup complete");
+    }
+    
+    /**
+     * Updates the RewindManager with the current boxes in the level
+     */
+    private void updateRewindManager() {
+        if (rewindManager != null) {
+            List<Box> boxes = getBoxesFromLevel();
+            rewindManager.setBoxes(boxes);
+        }
+    }
+    
+    /**
+     * Gets all boxes from the level
+     * 
+     * @return List of boxes
+     */
+    private List<Box> getBoxesFromLevel() {
+        List<Box> boxes = new ArrayList<>();
+        for (Entity entity : level.getEntities()) {
+            if (entity instanceof Box) {
+                boxes.add((Box) entity);
+            }
+        }
+        return boxes;
+    }
+    
+    /**
      * Changes the current level layout
      * @param layoutType The type of layout to create
      */
@@ -289,11 +353,41 @@ public class PlayState extends GameState {
         // Clear the level
         level.clearLevel();
         
-        // Recreate level 1
-        level.createLevel1();
+        // Update current level
+        currentLevel = layoutType;
+        
+        // Create the appropriate level
+        if (currentLevel == 1) {
+            level.createLevel1();
+            setupLevel1();
+        } else if (currentLevel == 2) {
+            level.createLevel2();
+            setupLevel2();
+        }
+        
+        // Reset player position to starting position
+        resetPlayerPosition();
         
         // Update player blocks
         player.setBlocks(level.getBlocks());
+    }
+    
+    /**
+     * Resets the player to the starting position for the current level
+     */
+    private void resetPlayerPosition() {
+        if (player == null) return;
+        
+        // Position player at the middle left of the grid for any level
+        int gridX = 2; // A few cells from the left border
+        int gridY = level.getGrid().getVerticalCells() / 2;
+        int playerX = level.getGrid().gridToScreenX(gridX);
+        int playerY = level.getGrid().gridToScreenY(gridY);
+        
+        player.setX(playerX);
+        player.setY(playerY);
+        
+        System.out.println("Reset player position to: " + playerX + "," + playerY);
     }
     
     @Override
@@ -317,13 +411,22 @@ public class PlayState extends GameState {
             // Update level (includes buttons, etc.)
             level.update();
             
-            // Update player position
+            // First, update box collision information before player movement
+            updateBoxCollision();
+            
+            // Second, update player position (this will handle collisions)
             if (player != null) {
                 player.update();
             }
             
+            // Third, update carried box position AFTER player movement
+            updateCarriedBox();
+            
             // Check for interaction with buttons
             checkButtonHighlights();
+            
+            // Check for interaction with boxes
+            checkBoxHighlights();
             
             // Check if door has been successfully opened for the first time
             if (multiButtonAction != null && multiButtonAction.isPermanentlyActivated() && door != null && !door.isOpen()) {
@@ -335,9 +438,165 @@ public class PlayState extends GameState {
             // Update door collision if necessary
             updateDoorCollision();
             
+            // Check if player is entering an open door (level transition)
+            checkDoorEntry();
+            
         } catch (Exception e) {
             System.err.println("Error in PlayState.update(): " + e.getMessage());
             e.printStackTrace();
+        }
+    }
+    
+    /**
+     * Updates the position of a carried box
+     */
+    private void updateCarriedBox() {
+        if (carriedBox != null) {
+            carriedBox.updateCarriedPosition(player.getX(), player.getY());
+        }
+    }
+    
+    /**
+     * Checks for boxes near the player and highlights them
+     */
+    private void checkBoxHighlights() {
+        if (player == null) return;
+        
+        // Get all boxes from the level
+        List<Box> boxes = getBoxesFromLevel();
+        
+        // Clear the list of nearby boxes
+        nearBoxes.clear();
+        
+        // Check each box to see if it's near the player
+        for (Box box : boxes) {
+            // Calculate distance between player center and box center
+            float playerCenterX = player.getX() + player.getWidth() / 2;
+            float playerCenterY = player.getY() + player.getHeight() / 2;
+            float boxCenterX = box.getX() + box.getWidth() / 2;
+            float boxCenterY = box.getY() + box.getHeight() / 2;
+            
+            // Calculate the distance in grid cells (not pixels)
+            float dx = Math.abs(playerCenterX - boxCenterX) / GRID_CELL_SIZE;
+            float dy = Math.abs(playerCenterY - boxCenterY) / GRID_CELL_SIZE;
+            
+            // Box is within 1 cell of player (Manhattan distance)
+            if (dx <= 1 && dy <= 1) {
+                nearBoxes.add(box);
+            }
+        }
+    }
+    
+    /**
+     * Updates collision blocks to include boxes
+     */
+    private void updateBoxCollision() {
+        if (player == null) return;
+        
+        // Get current blocks from the level
+        List<Block> blocks = new ArrayList<>(level.getBlocks());
+        
+        // Get all boxes from the level
+        List<Box> boxes = getBoxesFromLevel();
+        
+        // Add non-carried boxes as collision blocks
+        for (Box box : boxes) {
+            if (!box.isBeingCarried() && !box.equals(carriedBox)) {
+                blocks.add(box);
+            }
+        }
+        
+        // Update player's collision blocks - this only includes level blocks and non-carried boxes
+        player.setBlocks(blocks);
+        
+        // When carrying a box, modify the player's collision handling but don't add the box itself as a collision object
+        if (carriedBox != null) {
+            // Cast player to BallPlayer to use the setCarriedBox method
+            ((BallPlayer)player).setCarriedBox(carriedBox);
+        } else {
+            // Cast player to BallPlayer to use the setCarriedBox method
+            ((BallPlayer)player).setCarriedBox(null);
+        }
+    }
+
+    /**
+     * Handles box interactions (pick up or drop)
+     */
+    private void interactWithBoxes() {
+        // If already carrying a box, drop it
+        if (carriedBox != null) {
+            dropCarriedBox();
+            return;
+        }
+        
+        // Otherwise, check if there's a box nearby to pick up
+        for (Box box : nearBoxes) {
+            if (box.isMovable() && !box.isBeingCarried()) {
+                pickUpBox(box);
+                break;
+            }
+        }
+    }
+    
+    /**
+     * Picks up a box
+     * 
+     * @param box The box to pick up
+     */
+    private void pickUpBox(Box box) {
+        if (box.pickUp(player.getX(), player.getY(), player)) {
+            carriedBox = box;
+            System.out.println("Box picked up!");
+            
+            // Record box interaction in rewind manager
+            if (rewindManager != null && box.isActive()) {
+                rewindManager.recordBoxInteraction(box, true);
+            }
+        }
+    }
+    
+    /**
+     * Drops the currently carried box
+     */
+    private void dropCarriedBox() {
+        if (carriedBox != null) {
+            carriedBox.drop();
+            
+            // Record box interaction in rewind manager
+            if (rewindManager != null && carriedBox.isActive()) {
+                rewindManager.recordBoxInteraction(carriedBox, false);
+            }
+            
+            carriedBox = null;
+            System.out.println("Box dropped!");
+        }
+    }
+    
+    /**
+     * Checks if the player is entering an open door to trigger level transition
+     */
+    private void checkDoorEntry() {
+        if (player == null || door == null || !door.isOpen()) return;
+        
+        // Check if player is overlapping the door
+        float playerCenterX = player.getX() + player.getWidth() / 2;
+        float playerCenterY = player.getY() + player.getHeight() / 2;
+        float doorCenterX = door.getX() + door.getWidth() / 2;
+        float doorCenterY = door.getY() + door.getHeight() / 2;
+        
+        // Calculate distance between centers
+        float distance = (float) Math.sqrt(
+            Math.pow(playerCenterX - doorCenterX, 2) + 
+            Math.pow(playerCenterY - doorCenterY, 2)
+        );
+        
+        // If the player's center is close enough to the door's center
+        if (distance < player.getWidth() / 2) {
+            // Check which level we're on and transition accordingly
+            if (currentLevel == 1) {
+                System.out.println("Player entered the door! Transitioning to level 2...");
+                setLevelLayout(2);
+            }
         }
     }
     
@@ -366,6 +625,9 @@ public class PlayState extends GameState {
             
             // Draw interaction indicator for buttons
             drawButtonHighlights(g);
+            
+            // Draw interaction indicator for boxes
+            drawBoxHighlights(g);
             
             // Draw rewind status indicator
             drawRewindStatusIndicator(g);
@@ -514,6 +776,54 @@ public class PlayState extends GameState {
     }
     
     /**
+     * Draws highlights around boxes that are near the player
+     */
+    private void drawBoxHighlights(Graphics2D g) {
+        if (nearBoxes.isEmpty()) return;
+        
+        // Save original stroke
+        java.awt.Stroke originalStroke = g.getStroke();
+        
+        // Set a thicker stroke for highlighting
+        g.setStroke(new BasicStroke(3));
+        
+        // Draw highlight around each nearby box
+        for (Box box : nearBoxes) {
+            // Only highlight if it's movable
+            if (!box.isMovable()) continue;
+            
+            // Calculate the grid position for the box
+            int gridX = level.getGrid().screenToGridX((int)box.getX());
+            int gridY = level.getGrid().screenToGridY((int)box.getY());
+            
+            // Convert grid position to screen coordinates
+            int screenX = level.getGrid().gridToScreenX(gridX);
+            int screenY = level.getGrid().gridToScreenY(gridY);
+            
+            // Draw the cell outline with a pulsating effect
+            long currentTime = System.currentTimeMillis();
+            float pulseIntensity = (float)Math.abs(Math.sin(currentTime * 0.003)) * 0.5f + 0.5f;
+            
+            // Create a yellow highlight
+            Color highlightColor = new Color(
+                1.0f, 1.0f, 0.0f, 0.3f + pulseIntensity * 0.5f
+            );
+            g.setColor(highlightColor);
+            
+            // Draw the rectangle around the grid cell
+            g.drawRect(screenX, screenY, level.getGrid().getCellSize(), level.getGrid().getCellSize());
+            
+            // Draw "E" to indicate interaction key
+            g.setFont(new Font("Arial", Font.BOLD, 14));
+            g.setColor(Color.YELLOW);
+            g.drawString("E", screenX + level.getGrid().getCellSize() - 15, screenY + 15);
+        }
+        
+        // Restore original stroke
+        g.setStroke(originalStroke);
+    }
+    
+    /**
      * Activates buttons near the player
      */
     private void activateNearbyButtons() {
@@ -620,6 +930,7 @@ public class PlayState extends GameState {
         // Handle interaction with 'E' key
         if (k == KeyEvent.VK_E) {
             activateNearbyButtons();
+            interactWithBoxes();
         }
         
         // Handle pause with Escape key
@@ -632,9 +943,14 @@ public class PlayState extends GameState {
             rewindManager.toggleRewind();
         }
         
-        // For now, all level layout keys just reset to level 1
-        if (k == KeyEvent.VK_1 || k == KeyEvent.VK_2 || k == KeyEvent.VK_3 || k == KeyEvent.VK_0) {
+        // Level switching shortcuts
+        if (k == KeyEvent.VK_1) {
+            System.out.println("Switching to level 1");
             setLevelLayout(1);
+        }
+        else if (k == KeyEvent.VK_2) {
+            System.out.println("Switching to level 2");
+            setLevelLayout(2);
         }
     }
     

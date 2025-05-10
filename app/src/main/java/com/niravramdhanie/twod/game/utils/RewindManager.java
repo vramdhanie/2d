@@ -12,7 +12,9 @@ import com.niravramdhanie.twod.game.actions.DoorAction;
 import com.niravramdhanie.twod.game.actions.TimedAction;
 import com.niravramdhanie.twod.game.actions.ToggleAction;
 import com.niravramdhanie.twod.game.entity.BallPlayer;
+import com.niravramdhanie.twod.game.entity.Box;
 import com.niravramdhanie.twod.game.entity.Button;
+import com.niravramdhanie.twod.game.entity.Entity;
 
 /**
  * Manages the rewind feature for the game.
@@ -42,6 +44,10 @@ public class RewindManager {
     private Map<String, Boolean> initialToggleStates = new HashMap<>();
     private Map<String, Boolean> initialDoorStates = new HashMap<>();
     
+    // Box state tracking
+    private List<BoxState> initialBoxStates = new ArrayList<>();
+    private List<Box> boxes = new ArrayList<>();
+    
     // Recorded actions
     private List<RecordedAction> recordedActions = new ArrayList<>();
     
@@ -67,6 +73,15 @@ public class RewindManager {
     }
     
     /**
+     * Sets the list of boxes to track for rewind.
+     * 
+     * @param boxes The list of boxes to track
+     */
+    public void setBoxes(List<Box> boxes) {
+        this.boxes = boxes;
+    }
+    
+    /**
      * Starts recording player actions and game state.
      */
     public void startRecording() {
@@ -75,6 +90,7 @@ public class RewindManager {
         initialButtonStates.clear();
         initialToggleStates.clear();
         initialDoorStates.clear();
+        initialBoxStates.clear();
         currentToggleStates.clear();
         
         // Record initial state
@@ -114,6 +130,19 @@ public class RewindManager {
             }
         }
         
+        // Record initial box states
+        for (Box box : boxes) {
+            if (box.isActive()) { // Only record active boxes
+                initialBoxStates.add(new BoxState(
+                    box,
+                    box.getX(),
+                    box.getY(),
+                    box.isBeingCarried(),
+                    box.isBeingCarried() ? player : null
+                ));
+            }
+        }
+        
         // Set recording state
         currentState = RewindState.RECORDING;
         recordingStartTime = System.currentTimeMillis();
@@ -139,6 +168,39 @@ public class RewindManager {
         
         System.out.println("Rewind: Recorded button " + buttonId + " " + 
                           (activated ? "activation" : "deactivation") + " at time " + timestamp + "ms");
+    }
+    
+    /**
+     * Records a box interaction (pick up or drop).
+     * 
+     * @param box The box that was interacted with
+     * @param isPickup Whether the box was picked up (true) or dropped (false)
+     */
+    public void recordBoxInteraction(Box box, boolean isPickup) {
+        if (currentState != RewindState.RECORDING || !box.isActive()) {
+            return;
+        }
+        
+        long timestamp = System.currentTimeMillis() - recordingStartTime;
+        
+        // Record the box position and state at time of interaction
+        RecordedAction action = new RecordedAction(
+            isPickup ? ActionType.BOX_PICKUP : ActionType.BOX_DROP,
+            timestamp,
+            null, // No button ID for box interactions
+            false // Not used for box interactions
+        );
+        
+        // Store box reference and current position
+        action.box = box;
+        action.boxX = box.getX();
+        action.boxY = box.getY();
+        
+        recordedActions.add(action);
+        
+        System.out.println("Rewind: Recorded box " + 
+                          (isPickup ? "pickup" : "drop") + " at time " + timestamp + "ms, position (" +
+                          box.getX() + ", " + box.getY() + ")");
     }
     
     /**
@@ -189,6 +251,20 @@ public class RewindManager {
                     
                     break;
                 }
+            }
+        }
+        
+        // Reset box states
+        for (BoxState state : initialBoxStates) {
+            Box box = state.box;
+            box.setX(state.x);
+            box.setY(state.y);
+            
+            // Reset carried state
+            if (state.isBeingCarried && state.carrier != null) {
+                box.pickUp(state.carrier.getX(), state.carrier.getY(), state.carrier);
+            } else if (box.isBeingCarried()) {
+                box.drop();
             }
         }
         
@@ -249,119 +325,156 @@ public class RewindManager {
             // Sync final states to ensure consistency
             synchronizeFinalStates();
             
-            // Reset rewind state
             currentState = RewindState.IDLE;
-            System.out.println("Rewind: All actions replayed, returning to idle state");
+            System.out.println("Rewind: Completed replay of all actions");
         }
     }
     
     /**
-     * Synchronize final states to ensure consistency between buttons, toggles, and doors
+     * Synchronizes final states after rewinding to ensure consistency.
      */
     private void synchronizeFinalStates() {
-        // Apply the current toggle states from our tracking
+        // Ensure all buttons have their final state
         for (Button button : buttons) {
             String buttonId = getButtonId(button);
-            Action action = button.getAction();
+            boolean finalToggled = currentToggleStates.getOrDefault(buttonId, false);
             
-            // For toggle actions, apply the final tracked state
-            if (action instanceof ToggleAction) {
+            // Set final toggle state
+            button.forceSetToggleState(finalToggled);
+            
+            // Update door states via actions
+            Action action = button.getAction();
+            if (action instanceof DoorAction) {
+                DoorAction doorAction = (DoorAction) action;
+                doorAction.setDoorOpen(finalToggled);
+            } else if (action instanceof ToggleAction) {
                 ToggleAction toggleAction = (ToggleAction) action;
-                if (currentToggleStates.containsKey(buttonId)) {
-                    boolean finalToggleState = currentToggleStates.get(buttonId);
-                    button.forceSetToggleState(finalToggleState);
-                }
-                
-                // Ensure door state is consistent
                 if (toggleAction.getOnAction() instanceof DoorAction) {
                     DoorAction doorAction = (DoorAction) toggleAction.getOnAction();
-                    boolean toggledState = toggleAction.isToggled();
-                    doorAction.setDoorOpen(toggledState);
+                    doorAction.setDoorOpen(finalToggled);
                 }
+                if (toggleAction.getOffAction() instanceof DoorAction) {
+                    DoorAction doorAction = (DoorAction) toggleAction.getOffAction();
+                    doorAction.setDoorOpen(!finalToggled);
+                }
+            }
+        }
+        
+        // Ensure boxes are in proper positions
+        for (Box box : boxes) {
+            if (box.isActive()) {
+                // Final position should already be correct through the action replay
+                System.out.println("Box final position: (" + box.getX() + ", " + box.getY() + 
+                                  "), carried: " + box.isBeingCarried());
             }
         }
     }
     
     /**
-     * Applies a recorded action.
+     * Applies a recorded action during rewinding.
      * 
      * @param action The action to apply
      */
     private void applyAction(RecordedAction action) {
-        if (action.type == ActionType.BUTTON_ACTIVATION) {
-            // Find the button with matching ID
-            for (Button button : buttons) {
-                String buttonId = getButtonId(button);
-                if (buttonId.equals(action.buttonId)) {
-                    // Record the current state before making changes
-                    boolean wasActivated = button.isActivated();
-                    
-                    // Apply the action
-                    if (action.activated) {
-                        // If activating a button, use the regular activate method
-                        // which will trigger any associated actions
-                        button.activate();
-                        
-                        // Ensure TimedAction visual state is updated
-                        Action buttonAction = button.getAction();
-                        if (buttonAction instanceof TimedAction) {
-                            TimedAction timedAction = (TimedAction) buttonAction;
-                            if (!timedAction.isActive()) {
-                                timedAction.setActive(true);
-                            }
-                        }
-                        
-                        // Update toggle state tracking
-                        if (button.getAction() instanceof ToggleAction) {
-                            ToggleAction toggleAction = (ToggleAction) button.getAction();
-                            boolean newToggleState = toggleAction.isToggled();
-                            currentToggleStates.put(buttonId, newToggleState);
-                            
-                            // Ensure door state is consistent with toggle state
-                            if (toggleAction.getOnAction() instanceof DoorAction) {
-                                DoorAction doorAction = (DoorAction) toggleAction.getOnAction();
-                                doorAction.setDoorOpen(newToggleState);
-                            }
-                        }
-                    } else {
-                        // If deactivating, use the proper deactivate method 
-                        // which will update visual indicators properly
-                        button.deactivate();
-                        
-                        // Ensure TimedAction visual state is updated
-                        Action buttonAction = button.getAction();
-                        if (buttonAction instanceof TimedAction) {
-                            TimedAction timedAction = (TimedAction) buttonAction;
-                            if (timedAction.isActive()) {
-                                timedAction.setActive(false);
-                            }
-                        }
-                    }
-                    
-                    System.out.println("Rewind: Replayed button " + action.buttonId + 
-                                     " " + (action.activated ? "activation" : "deactivation") + 
-                                     " at time " + action.timestamp + "ms");
-                    break;
+        switch (action.type) {
+            case BUTTON_ACTIVATION:
+                applyButtonActivation(action);
+                break;
+            case BOX_PICKUP:
+                applyBoxPickup(action);
+                break;
+            case BOX_DROP:
+                applyBoxDrop(action);
+                break;
+        }
+    }
+    
+    /**
+     * Applies a button activation action during rewinding.
+     * 
+     * @param action The button activation action to apply
+     */
+    private void applyButtonActivation(RecordedAction action) {
+        for (Button button : buttons) {
+            String buttonId = getButtonId(button);
+            if (buttonId.equals(action.buttonId)) {
+                // Activate or deactivate the button
+                if (action.activated) {
+                    button.activate();
+                } else {
+                    button.deactivate();
                 }
+                
+                // Update toggle state if this is a toggle button
+                Action buttonAction = button.getAction();
+                if (buttonAction instanceof ToggleAction) {
+                    boolean newToggled = action.activated ? !currentToggleStates.getOrDefault(buttonId, false) 
+                                                         : currentToggleStates.getOrDefault(buttonId, false);
+                    currentToggleStates.put(buttonId, newToggled);
+                }
+                
+                System.out.println("Rewind: Applied button " + buttonId + " " + 
+                                  (action.activated ? "activation" : "deactivation") + 
+                                  " at replay time " + action.timestamp + "ms");
+                break;
             }
         }
     }
     
     /**
-     * Toggles the rewind feature when the 'R' key is pressed.
+     * Applies a box pickup action during rewinding.
+     * 
+     * @param action The box pickup action to apply
+     */
+    private void applyBoxPickup(RecordedAction action) {
+        if (action.box != null) {
+            // Set the box position first
+            action.box.setX(action.boxX);
+            action.box.setY(action.boxY);
+            
+            // Then pick it up
+            action.box.pickUp(player.getX(), player.getY(), player);
+            
+            System.out.println("Rewind: Applied box pickup at replay time " + 
+                              action.timestamp + "ms, position (" + action.boxX + ", " + action.boxY + ")");
+        }
+    }
+    
+    /**
+     * Applies a box drop action during rewinding.
+     * 
+     * @param action The box drop action to apply
+     */
+    private void applyBoxDrop(RecordedAction action) {
+        if (action.box != null) {
+            // Drop the box
+            action.box.drop();
+            
+            // Set the final position
+            action.box.setX(action.boxX);
+            action.box.setY(action.boxY);
+            
+            System.out.println("Rewind: Applied box drop at replay time " + 
+                              action.timestamp + "ms, position (" + action.boxX + ", " + action.boxY + ")");
+        }
+    }
+    
+    /**
+     * Toggles the rewind state.
+     * If idle, starts recording.
+     * If recording, starts rewinding.
+     * If rewinding, does nothing.
      */
     public void toggleRewind() {
         switch (currentState) {
             case IDLE:
                 startRecording();
                 break;
-                
             case RECORDING:
                 startRewinding();
                 break;
-                
             case REWINDING:
-                // Do nothing if already rewinding
+                // Do nothing while rewinding
                 break;
         }
     }
@@ -376,18 +489,15 @@ public class RewindManager {
     }
     
     /**
-     * Generate a unique ID for a button based on its position.
-     * 
-     * @param button The button to get an ID for
-     * @return A unique string ID
+     * Converts a button to a unique ID for tracking.
      */
     private String getButtonId(Button button) {
-        // Create a unique ID based on the button's position
-        return "btn_" + (int)button.getX() + "_" + (int)button.getY();
+        // Use the location as a unique identifier to avoid requiring IDs
+        return "button_" + button.getX() + "_" + button.getY();
     }
     
     /**
-     * Records the state of a button.
+     * Class to track button state information.
      */
     private static class ButtonState {
         String buttonId;
@@ -411,21 +521,47 @@ public class RewindManager {
     }
     
     /**
-     * Types of actions that can be recorded.
+     * Class to track box state information.
      */
-    private enum ActionType {
-        BUTTON_ACTIVATION
+    private static class BoxState {
+        Box box;
+        float x;
+        float y;
+        boolean isBeingCarried;
+        Entity carrier;
+        
+        BoxState(Box box, float x, float y, boolean isBeingCarried, Entity carrier) {
+            this.box = box;
+            this.x = x;
+            this.y = y;
+            this.isBeingCarried = isBeingCarried;
+            this.carrier = carrier;
+        }
     }
     
     /**
-     * A recorded action with timestamp.
+     * Types of recorded actions.
+     */
+    private enum ActionType {
+        BUTTON_ACTIVATION,
+        BOX_PICKUP,
+        BOX_DROP
+    }
+    
+    /**
+     * Class to track information about a recorded action.
      */
     private static class RecordedAction {
         ActionType type;
         long timestamp;
-        String buttonId;
-        boolean activated;
+        String buttonId;  // Used for button actions
+        boolean activated; // Used for button actions
         boolean applied = false;
+        
+        // Box action properties
+        Box box;          // Used for box actions
+        float boxX;       // Used for box actions
+        float boxY;       // Used for box actions
         
         RecordedAction(ActionType type, long timestamp, String buttonId, boolean activated) {
             this.type = type;
